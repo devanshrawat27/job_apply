@@ -1,0 +1,36 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.db
+*.sqlite3
+
+# node
+node_modules/
+.next/
+out/
+
+# env & secrets
+.env
+.env.*
+*.log
+*.log.err
+*.err
+
+# local user data (resumes, uploads, browser output)
+backend/data/
+backend/uploads/
+chatgpt-debug*.png
+*-debug*.png
+
+# playwright artifacts
+executor/.artifacts/
+error-state.png
+
+# scheduler single-instance lock
+backend/.scheduler.lock
+.scheduler.lock
+*.db.bak
+*.db-wal
+*.db-shm
