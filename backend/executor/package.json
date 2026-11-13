@@ -1,0 +1,14 @@
+{
+  "name": "jobpilot-executor",
+  "version": "1.0.0",
+  "description": "Playwright scripts for the JobPilot X job outreach agent.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "install:browsers": "playwright install chromium",
+    "login": "node scripts/loginWithPassword.js"
+  },
+  "dependencies": {
+    "playwright": "1.53.1"
+  }
+}
