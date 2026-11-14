@@ -18,7 +18,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }) {
           <AppSidebar />
           <div className="md:pl-64">
             <MobileNav />
-            <div className="mx-auto w-full max-w-5xl px-4 py-6 sm:px-6">{children}</div>
+            <div className="mx-auto w-full max-w-6xl px-4 py-6 pb-16 sm:px-6 lg:px-8">{children}</div>
           </div>
         </div>
       </WorkspaceGuard>

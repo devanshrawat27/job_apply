@@ -109,8 +109,12 @@
   }
   html {
     @apply font-sans antialiased;
+    scroll-behavior: smooth;
   }
   body {
     @apply bg-background text-foreground;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--foreground) 18%, transparent);
   }
 }

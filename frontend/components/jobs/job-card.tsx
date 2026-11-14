@@ -109,7 +109,7 @@ export function JobCard({
   }
 
   return (
-    <article className="overflow-hidden rounded-xl border border-border bg-card">
+    <article className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
       {needsYou ? (
         <div className="flex items-start gap-2 border-b border-amber-500/20 bg-amber-500/[0.06] px-4 py-2.5">
           <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />

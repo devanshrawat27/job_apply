@@ -11,12 +11,32 @@ import { api } from '@/lib/api'
 import type { Run } from '@/lib/types'
 import { timeAgo } from '@/lib/utils'
 
+const SUMMARY_LABELS: Record<string, string> = {
+  posts_seen: 'seen',
+  posts_new: 'new',
+  duplicates: 'dupes',
+  relevant: 'relevant',
+  queued: 'queued',
+  pending_approval: 'to review',
+  rejected: 'rejected',
+  feed_posts: 'from feed',
+  queries: 'queries',
+  attempted: 'attempted',
+  replied: 'replied',
+  dm_sent: 'DMs',
+  failed: 'failed',
+  deferred: 'deferred',
+  stopped: 'stopped',
+}
+
 function summarise(stats: Record<string, unknown>): string {
   const parts: string[] = []
   for (const [key, value] of Object.entries(stats || {})) {
-    if (key === 'errors') continue
+    if (key === 'errors' || key === 'keywords') continue
+    const label = SUMMARY_LABELS[key]
+    if (!label) continue
     if (value === 0 || value === '' || value === null || value === undefined) continue
-    parts.push(`${key.replace(/_/g, ' ')}: ${value}`)
+    parts.push(`${label} ${value}`)
   }
   const errors = (stats?.errors as string[] | undefined) || []
   if (errors.length) parts.push(`${errors.length} error(s)`)

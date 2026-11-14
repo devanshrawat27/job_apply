@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { Loader2Icon, UserPlusIcon } from 'lucide-react'
 
 import { Logo } from '@/components/logo'
+import { AuthShell } from '@/components/auth-shell'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -72,20 +73,19 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex justify-center">
-          <Logo href="/" />
-        </div>
+    <AuthShell>
+      <div className="mb-6 flex justify-center lg:hidden">
+        <Logo href="/" />
+      </div>
 
-        <div className="rounded-2xl border border-border bg-card p-6">
-          <div className="mb-4 flex items-center gap-2">
-            <UserPlusIcon className="size-4 text-muted-foreground" />
-            <h1 className="text-lg font-semibold tracking-tight">Create your workspace</h1>
-          </div>
-          <p className="mb-5 text-xs text-muted-foreground">
-            Each account has its own profile, resumes, X account, jobs and history.
-          </p>
+      <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+        <div className="mb-4 flex items-center gap-2">
+          <UserPlusIcon className="size-4 text-muted-foreground" />
+          <h1 className="text-lg font-semibold tracking-tight">Create your workspace</h1>
+        </div>
+        <p className="mb-5 text-xs text-muted-foreground">
+          Each account has its own profile, resumes, X account, jobs and history.
+        </p>
 
           {error ? (
             <Alert variant="destructive" className="mb-4">
@@ -130,8 +130,7 @@ export default function SignupPage() {
               Log in
             </Link>
           </p>
-        </div>
       </div>
-    </main>
+    </AuthShell>
   )
 }

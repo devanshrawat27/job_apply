@@ -6,7 +6,9 @@ import {
   ArrowRightIcon,
   AtSignIcon,
   ClipboardCheckIcon,
+  ClockIcon,
   Loader2Icon,
+  MessageSquareIcon,
   PlayIcon,
   RadarIcon,
   SearchIcon,
@@ -76,7 +78,7 @@ export default function DashboardPage() {
       ) : null}
 
       {/* command center */}
-      <section className="rounded-2xl border border-border bg-card p-5 sm:p-6">
+      <section className="rounded-2xl border border-border bg-gradient-to-br from-card via-card to-muted/40 p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">
@@ -101,19 +103,27 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="mt-5 grid gap-x-6 gap-y-5 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label="Waiting for you" value={loading ? '—' : pending} hint="posts the agent was unsure about" />
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric
+            icon={ClipboardCheckIcon}
+            label="Waiting for you"
+            value={loading ? '—' : pending}
+            hint="posts the agent was unsure about"
+          />
+          <Metric
+            icon={MessageSquareIcon}
             label="Replies today"
             value={loading ? '—' : `${usage?.replies_today ?? 0}/${usage?.daily_reply_cap ?? 0}`}
             hint="daily cap"
           />
           <Metric
+            icon={SendIcon}
             label="DMs today"
             value={loading ? '—' : `${usage?.dms_today ?? 0}/${usage?.daily_dm_cap ?? 0}`}
             hint="daily cap"
           />
           <Metric
+            icon={ClockIcon}
             label="Last scan"
             value={loading ? '—' : timeAgo(dashboard?.agent.last_scan ?? null)}
             hint={`every ${settings?.scan_interval_minutes ?? '—'} min`}
@@ -174,7 +184,7 @@ export default function DashboardPage() {
 
       {/* quick cards */}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Card>
+        <Card className="transition-colors hover:border-foreground/20">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <AtSignIcon className="size-4" />
@@ -192,7 +202,7 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="transition-colors hover:border-foreground/20">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2">
               <PlayIcon className="size-4" />
@@ -480,12 +490,25 @@ function describeRun(stats: Record<string, unknown>): string {
   return parts.join(' · ') || 'no changes'
 }
 
-function Metric({ label, value, hint }: { label: string; value: React.ReactNode; hint: string }) {
+function Metric({
+  icon: Icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  value: React.ReactNode
+  hint: string
+}) {
   return (
-    <div>
-      <p className="text-sm text-muted-foreground">{label}</p>
-      <p className="text-3xl font-semibold tabular-nums">{value}</p>
-      <p className="text-xs text-muted-foreground">{hint}</p>
+    <div className="rounded-xl border border-border bg-background/60 p-4">
+      <div className="flex items-center gap-2 text-muted-foreground">
+        <Icon className="size-3.5" />
+        <p className="text-xs font-medium">{label}</p>
+      </div>
+      <p className="mt-2 text-2xl font-semibold tabular-nums">{value}</p>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{hint}</p>
     </div>
   )
 }
