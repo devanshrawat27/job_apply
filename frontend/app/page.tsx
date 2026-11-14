@@ -30,10 +30,10 @@ const FEATURES = [
 
 export default function LandingPage() {
   return (
-    <main className="relative min-h-screen overflow-x-hidden">
-      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[480px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(16,185,129,0.10),transparent_70%)]" />
+    <main className="relative flex min-h-screen flex-col overflow-x-hidden lg:h-screen lg:overflow-hidden">
+      <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(16,185,129,0.10),transparent_70%)]" />
 
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-5">
+      <header className="flex w-full shrink-0 items-center justify-between px-5 py-4 sm:px-8">
         <Logo href="/" />
         <div className="flex items-center gap-2">
           <Link
@@ -49,40 +49,39 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <section className="mx-auto w-full max-w-3xl px-5 pb-16 pt-10 text-center sm:pt-20">
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-3 py-1 text-[11px] text-muted-foreground">
-          <span className="size-1.5 rounded-full bg-emerald-500" />
-          For freshers and early-career developers
-        </span>
+      <div className="flex flex-1 flex-col items-center justify-center gap-10 px-5 py-6 text-center lg:gap-14">
+        <section className="w-full max-w-2xl">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-3 py-1 text-[11px] text-muted-foreground">
+            <span className="size-1.5 rounded-full bg-emerald-500" />
+            For freshers and early-career developers
+          </span>
 
-        <h1 className="mt-6 text-4xl font-semibold leading-[1.08] tracking-tight sm:text-6xl">
-          Job hunting on X,
-          <br />
-          handled.
-        </h1>
+          <h1 className="mt-5 text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl">
+            Job hunting on X,
+            <br />
+            handled.
+          </h1>
 
-        <p className="mx-auto mt-5 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-          JobPilot scans your feed and fresh hiring posts, writes a specific reply and DM
-          for each real opening, and applies when it is confident. You approve the rest.
-        </p>
+          <p className="mx-auto mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
+            JobPilot scans your feed and fresh hiring posts, writes a specific reply and DM
+            for each real opening, and applies when it is confident. You approve the rest.
+          </p>
 
-        <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-          <Link href="/signup" className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}>
-            Create a workspace
-            <ArrowRightIcon className="size-4" />
-          </Link>
-          <Link
-            href="/login"
-            className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))}
-          >
-            I already have an account
-          </Link>
-        </div>
-      </section>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/signup" className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}>
+              Create a workspace
+              <ArrowRightIcon className="size-4" />
+            </Link>
+            <Link
+              href="/login"
+              className={cn(buttonVariants({ variant: 'outline', size: 'lg' }))}
+            >
+              I already have an account
+            </Link>
+          </div>
+        </section>
 
-      {/* three points */}
-      <section className="border-y border-border bg-muted/20">
-        <div className="mx-auto grid w-full max-w-5xl gap-8 px-5 py-12 sm:grid-cols-3">
+        <section className="grid w-full max-w-4xl gap-6 border-t border-border pt-6 text-left sm:grid-cols-3">
           {FEATURES.map((feature) => (
             <div key={feature.title} className="flex items-start gap-3">
               <span className="grid size-8 shrink-0 place-items-center rounded-lg border border-border bg-background">
@@ -96,37 +95,18 @@ export default function LandingPage() {
               </div>
             </div>
           ))}
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section className="mx-auto w-full max-w-5xl px-5 py-16">
-        <div className="flex flex-col items-start justify-between gap-5 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-2xl font-semibold tracking-tight">
-              Stop refreshing X for openings.
-            </h2>
-            <p className="mt-1.5 text-sm text-muted-foreground">
-              Let the agent read the timeline while you prepare for interviews.
-            </p>
-          </div>
-          <Link href="/signup" className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}>
-            Create a workspace
-            <ArrowRightIcon className="size-4" />
+      <footer className="flex w-full shrink-0 flex-wrap items-center justify-between gap-3 border-t border-border px-5 py-4 text-[11px] text-muted-foreground sm:px-8">
+        <span>© {new Date().getFullYear()} JobPilot</span>
+        <div className="flex gap-4">
+          <Link href="/login" className="hover:text-foreground">
+            Log in
           </Link>
-        </div>
-      </section>
-
-      <footer className="border-t border-border">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-3 px-5 py-6 text-[11px] text-muted-foreground">
-          <span>© {new Date().getFullYear()} JobPilot</span>
-          <div className="flex gap-4">
-            <Link href="/login" className="hover:text-foreground">
-              Log in
-            </Link>
-            <Link href="/signup" className="hover:text-foreground">
-              Sign up
-            </Link>
-          </div>
+          <Link href="/signup" className="hover:text-foreground">
+            Sign up
+          </Link>
         </div>
       </footer>
     </main>
