@@ -167,7 +167,7 @@ def review_keywords(
         from app.services import browser_chatgpt
 
         try:
-            data = browser_chatgpt.ask_json(SYSTEM, prompt)
+            data = browser_chatgpt.ask_json(SYSTEM, prompt, user_id=user_id)
         except Exception as exc:  # noqa: BLE001 - fall back to the API path
             logger.warning("browser ChatGPT analysis failed: %s", exc)
 

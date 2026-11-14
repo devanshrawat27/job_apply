@@ -134,11 +134,12 @@ def test_key(key_id: int, user: CurrentUser = None, db: Session = Depends(get_db
 def chatgpt_status(user: CurrentUser = None, db: Session = Depends(get_db)):
     from app.services import browser_chatgpt
 
-    row = pipeline.get_settings_row(db, _uid(user))
+    uid = _uid(user)
+    row = pipeline.get_settings_row(db, uid)
     return {
-        "connected": browser_chatgpt.connected(),
+        "connected": browser_chatgpt.connected(uid),
         "enabled": bool(row.chatgpt_browser_enabled),
-        "profile": str(browser_chatgpt.marker_path().parent),
+        "profile": str(browser_chatgpt.marker_path(uid).parent),
     }
 
 
@@ -146,7 +147,7 @@ def chatgpt_status(user: CurrentUser = None, db: Session = Depends(get_db)):
 def chatgpt_account(user: CurrentUser = None):
     from app.services import browser_chatgpt
 
-    info = browser_chatgpt.account()
+    info = browser_chatgpt.account(_uid(user))
     if info is None:
         raise HTTPException(
             status_code=404,
@@ -160,7 +161,7 @@ def chatgpt_connect(user: CurrentUser = None, db: Session = Depends(get_db)):
     """Open chatgpt.com and wait for the human to log in (up to ~5 minutes)."""
     from app.services import browser_chatgpt
 
-    result = browser_chatgpt.login()
+    result = browser_chatgpt.login(_uid(user))
     if not result.get("success"):
         raise HTTPException(
             status_code=400,
@@ -176,7 +177,7 @@ def chatgpt_connect(user: CurrentUser = None, db: Session = Depends(get_db)):
 def chatgpt_disconnect(user: CurrentUser = None, db: Session = Depends(get_db)):
     from app.services import browser_chatgpt
 
-    marker = browser_chatgpt.marker_path()
+    marker = browser_chatgpt.marker_path(_uid(user))
     try:
         marker.unlink(missing_ok=True)
     except OSError:
@@ -212,7 +213,7 @@ def watcher_check(user: CurrentUser = None, db: Session = Depends(get_db)):
     user_id = _uid(user)
     settings_row = pipeline.get_settings_row(db, user_id)
     providers = pipeline.llm_providers(db, user_id)
-    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
     try:
         payload = watcher.review(db, user_id, providers=providers, browser=use_browser)
     except LLMUnavailable as exc:
@@ -245,7 +246,7 @@ def refresh_insight(user: CurrentUser = None, db: Session = Depends(get_db)):
     user_id = _uid(user)
     row = pipeline.get_settings_row(db, user_id)
     providers = pipeline.llm_providers(db, user_id)
-    use_browser = bool(row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+    use_browser = bool(row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
     try:
         payload = analyst.review_keywords(
             db, user_id, providers=providers, browser=use_browser

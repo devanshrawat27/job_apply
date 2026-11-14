@@ -47,6 +47,7 @@ def connect_with_password(
     result = executor.run_script(
         "login",
         {"handle": handle, "password": password, "verification_code": verification_code or ""},
+        user_id=user_id,
     )
     if not result.get("success"):
         return result

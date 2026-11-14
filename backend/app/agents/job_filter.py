@@ -133,7 +133,7 @@ def review_batch(
         from app.services import browser_chatgpt
 
         try:
-            data = browser_chatgpt.ask_json(SYSTEM, prompt)
+            data = browser_chatgpt.ask_json(SYSTEM, prompt, user_id=user_id)
         except Exception as exc:  # noqa: BLE001 - fall back to the API
             logger.warning("browser job filter failed: %s", exc)
 

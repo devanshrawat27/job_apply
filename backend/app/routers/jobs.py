@@ -275,6 +275,7 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
             budget_s=120,
             providers=providers,
             browser_fallback=use_browser,
+            browser_user_id=uid,
         )
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         raise HTTPException(status_code=502, detail=str(exc)[:300])

@@ -91,9 +91,20 @@ def stop_host() -> None:
 atexit.register(stop_host)
 
 
-def ensure_host(creds: dict[str, str]) -> str:
+def profile_suffix(user_id: int | None) -> str:
+    """Workspace-specific browser profile suffix.
+
+    The original workspace (user 1 / legacy rows) keeps the base profile so its
+    existing X login keeps working. Every other user gets an isolated profile.
+    """
+    if user_id is None or user_id == 1:
+        return ""
+    return f"-u{user_id}"
+
+
+def ensure_host(creds: dict[str, str], suffix: str = "") -> str:
     """Start (or reuse) the persistent browser. Returns '' when unavailable."""
-    key = f"{creds.get('auth_token', '')}:{creds.get('ct0', '')}"
+    key = f"{suffix}:{creds.get('auth_token', '')}:{creds.get('ct0', '')}"
     with _HOST_LOCK:
         proc = _HOST.get("proc")
         if proc is not None and proc.poll() is None and _HOST.get("key") == key:
@@ -108,6 +119,7 @@ def ensure_host(creds: dict[str, str]) -> str:
         port = _free_port()
         env = os.environ.copy()
         env["BROWSER_CDP_PORT"] = str(port)
+        env["JOBPILOT_PROFILE_SUFFIX"] = suffix
         env["TWITTER_AUTH_TOKEN"] = creds.get("auth_token", "")
         env["TWITTER_CT0"] = creds.get("ct0", "")
         env["TWITTER_TWID"] = creds.get("twid", "")
@@ -187,6 +199,7 @@ def run_script(
     *,
     creds: dict[str, str] | None = None,
     dm_passcode: str | None = None,
+    user_id: int | None = None,
     timeout: int | None = None,
 ) -> dict[str, Any]:
     """Run one executor script and return its parsed RESULT_JSON payload."""
@@ -199,8 +212,10 @@ def run_script(
     if not script.exists():
         raise ExecutorUnavailable(f"missing executor script: {script}")
 
+    suffix = profile_suffix(user_id)
     env = os.environ.copy()
     env["STEALTH_BACKEND"] = "chromium-stealth"
+    env["JOBPILOT_PROFILE_SUFFIX"] = suffix
     # Everything runs headless in the background. The only exceptions are the
     # interactive sign-ins, which the human explicitly starts from the UI.
     if settings.automation_headless and name not in ("login", "chatgpt_login"):
@@ -220,7 +235,7 @@ def run_script(
 
     # Every action except login reuses the persistent browser.
     if name != "login" and creds:
-        endpoint = ensure_host(creds)
+        endpoint = ensure_host(creds, suffix)
         if endpoint:
             env["BROWSER_CDP_ENDPOINT"] = endpoint
 

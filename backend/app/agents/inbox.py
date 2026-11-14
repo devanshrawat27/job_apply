@@ -51,7 +51,7 @@ def _mark(job: JobPost, text: str, kind: str) -> None:
 
 def sync(db: Session, user_id: int | None, creds: dict) -> dict:
     """Read the inbox once and mark any matching jobs as replied."""
-    result = executor.run_script("check_inbox", {}, creds=creds)
+    result = executor.run_script("check_inbox", {}, creds=creds, user_id=user_id)
     if not result.get("success"):
         return {
             "ok": False,

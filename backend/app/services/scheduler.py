@@ -211,7 +211,7 @@ class AgentLoop(threading.Thread):
             from app.services import browser_chatgpt
 
             providers = pipeline.llm_providers(db, user_id)
-            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
             if (providers or settings.llm_enabled or use_browser) and analyst.due(db, user_id):
                 analyst.review_keywords(
                     db, user_id, providers=providers, browser=use_browser
@@ -227,7 +227,7 @@ class AgentLoop(threading.Thread):
             from app.services import browser_chatgpt
 
             providers = pipeline.llm_providers(db, user_id)
-            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
             if (providers or settings.llm_enabled or use_browser) and watcher.needs_report(
                 db, user_id
             ):

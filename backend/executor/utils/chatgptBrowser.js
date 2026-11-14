@@ -3,7 +3,7 @@ import path from 'path'
 import { chromium } from 'playwright'
 
 import { getStealthConfig } from './stealthConfig.js'
-import { getAppDataDir } from './paths.js'
+import { getAppDataDir, getProfileSuffix } from './paths.js'
 
 /**
  * Dedicated Chromium profile for chatgpt.com.
@@ -24,7 +24,7 @@ const USER_AGENT =
   '(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
 
 export function getChatgptProfileDir() {
-  return path.join(getAppDataDir(), 'chatgpt-profile')
+  return path.join(getAppDataDir(), `chatgpt-profile${getProfileSuffix()}`)
 }
 
 export function getConnectedMarker() {

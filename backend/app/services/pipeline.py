@@ -110,13 +110,20 @@ def _log(job: JobPost, message: str) -> None:
 
 # ---------------------------------------------------------------------- scan
 
-def _search(query: str, count: int, creds: dict | None) -> dict:
-    return executor.run_script("search", {"query": query, "count": count}, creds=creds)
-
-
-def _feed(count: int, creds: dict | None, scrolls: int = 8) -> dict:
+def _search(query: str, count: int, creds: dict | None, user_id: int | None = None) -> dict:
     return executor.run_script(
-        "feed", {"count": count, "scrolls": scrolls}, creds=creds
+        "search", {"query": query, "count": count}, creds=creds, user_id=user_id
+    )
+
+
+def _feed(
+    count: int,
+    creds: dict | None,
+    scrolls: int = 8,
+    user_id: int | None = None,
+) -> dict:
+    return executor.run_script(
+        "feed", {"count": count, "scrolls": scrolls}, creds=creds, user_id=user_id
     )
 
 
@@ -193,6 +200,7 @@ def scan(
             max(1, min(feed_count, 100)),
             creds,
             scrolls=max(1, min(feed_scrolls, 20)),
+            user_id=user_id,
         )
         if feed_result.get("success"):
             feed_posts = (feed_result.get("data") or {}).get("posts") or []
@@ -213,6 +221,7 @@ def scan(
                 query_lab.wrap_query(row.keyword, settings_row, profile=profile),
                 settings_row.max_posts_per_scan,
                 creds,
+                user_id=user_id,
             )
             data = result.get("data") or {}
             posts = data.get("posts") or []
@@ -420,6 +429,7 @@ def scan(
                 follow_up=earlier_dms,
                 providers=providers,
                 browser_fallback=browser_draft,
+                browser_user_id=user_id,
             )
             job.reply_text = draft["reply_text"]
             job.dm_text = draft["dm_text"]
@@ -912,6 +922,7 @@ def _send_one(
             "reply",
             {"post_url": job.post_url, "reply_text": job.reply_text},
             creds=creds,
+            user_id=job.user_id,
         )
         code = result.get("code", "ERROR")
         job.reply_status, stop = _apply_write_result(
@@ -988,7 +999,7 @@ def _send_one(
             # No reply from them yet: following is the polite nudge instead of
             # another DM. Only for real people, never job-board accounts.
             if not job.followed and (job.author_type or "person") in ("person", "founder"):
-                follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds)
+                follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds, user_id=job.user_id)
                 follow_code = follow.get("code", "ERROR")
                 if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
                     job.followed = True
@@ -1024,7 +1035,7 @@ def _send_one(
         # Follow-up DM: follow the person first so a non-answer does not hide
         # the message in their requests/unknown inbox.
         if dm_count > 0 and not job.followed:
-            follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds)
+            follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds, user_id=job.user_id)
             follow_code = follow.get("code", "ERROR")
             if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
                 job.followed = True
@@ -1050,12 +1061,13 @@ def _send_one(
             {"username": job.author_handle, "message": job.dm_text},
             creds=creds,
             dm_passcode=accounts.dm_passcode(account),
+            user_id=job.user_id,
         )
 
         # X sometimes only allows a DM once you follow. Follow *only* then, and
         # retry the DM once - never follow when the DM already works.
         if result.get("code") == "DM_LOCKED" and settings_row.follow_when_needed:
-            follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds)
+            follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds, user_id=job.user_id)
             follow_code = follow.get("code", "ERROR")
             if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
                 job.followed = True
@@ -1078,6 +1090,7 @@ def _send_one(
                     {"username": job.author_handle, "message": job.dm_text},
                     creds=creds,
                     dm_passcode=accounts.dm_passcode(account),
+                    user_id=job.user_id,
                 )
                 if result.get("code") == "DM_LOCKED":
                     result["error"] = (

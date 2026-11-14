@@ -23,7 +23,16 @@ export function getAppDataDir() {
  * X's encrypted chat keeps its keys in IndexedDB. A fresh profile every run has
  * no keys, so the chat renders blank. Keeping one profile means the chat stays
  * unlocked after the first passcode entry.
+ *
+ * Multi-user: each workspace gets its own profile suffix so two X accounts never
+ * share cookies or chat keys. The first/original workspace keeps the base
+ * profile so an existing login is not lost.
  */
+export function getProfileSuffix() {
+  const suffix = (process.env.JOBPILOT_PROFILE_SUFFIX || '').trim()
+  return suffix.replace(/[^a-zA-Z0-9_-]/g, '')
+}
+
 export function getBrowserProfileDir() {
-  return path.join(getAppDataDir(), 'browser-profile')
+  return path.join(getAppDataDir(), `browser-profile${getProfileSuffix()}`)
 }

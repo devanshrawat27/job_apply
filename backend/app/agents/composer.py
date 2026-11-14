@@ -253,6 +253,7 @@ def compose(
     follow_up: int = 0,
     providers: list[dict] | None = None,
     browser_fallback: bool = False,
+    browser_user_id: int | None = None,
 ) -> dict:
     if not _llm_ready():
         return _apply_safety(post, _fallback(profile, post))
@@ -302,7 +303,9 @@ def compose(
                     from app.services import browser_chatgpt
 
                     logger.info("composer: API LLM unavailable (%s), using browser ChatGPT", exc)
-                    data = browser_chatgpt.ask_json(SYSTEM, user_prompt, timeout=110)
+                    data = browser_chatgpt.ask_json(
+                        SYSTEM, user_prompt, user_id=browser_user_id, timeout=110
+                    )
                 except Exception as browser_exc:  # noqa: BLE001
                     logger.warning("composer browser ChatGPT failed: %s", browser_exc)
             if data is None:
