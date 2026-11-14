@@ -1,11 +1,10 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2Icon } from 'lucide-react'
+import { Loader2Icon, SearchIcon } from 'lucide-react'
 
 import { JobCard } from '@/components/jobs/job-card'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/misc'
 import { api } from '@/lib/api'
 import { onDataChanged } from '@/lib/events'
@@ -120,16 +119,21 @@ export function JobList({
       ) : null}
 
       {mode === 'all' ? (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-muted/30 p-1">
           {FILTERS.map((item) => (
-            <Button
+            <button
               key={item.key}
-              size="sm"
-              variant={filter === item.key ? 'secondary' : 'ghost'}
+              type="button"
+              aria-pressed={filter === item.key}
               onClick={() => setFilter(item.key)}
+              className={
+                filter === item.key
+                  ? 'rounded-lg bg-background px-3 py-1.5 text-xs font-medium text-foreground shadow-sm'
+                  : 'rounded-lg px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground'
+              }
             >
               {item.label}
-            </Button>
+            </button>
           ))}
         </div>
       ) : null}
@@ -140,7 +144,10 @@ export function JobList({
           <Skeleton className="h-28 w-full" />
         </div>
       ) : jobs.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-border p-10 text-center">
+        <div className="flex flex-col items-center rounded-xl border border-dashed border-border px-6 py-14 text-center">
+          <span className="mb-3 grid size-11 place-items-center rounded-full bg-muted text-muted-foreground">
+            <SearchIcon className="size-5" />
+          </span>
           <p className="text-sm font-medium">
             {mode === 'review'
               ? EMPTY.pending_approval.title
@@ -148,7 +155,7 @@ export function JobList({
                 ? 'No direct apply links right now'
                 : (EMPTY[filter] ?? EMPTY.all).title}
           </p>
-          <p className="mt-1 text-xs text-muted-foreground">
+          <p className="mt-1 max-w-md text-xs text-muted-foreground">
             {mode === 'review'
               ? EMPTY.pending_approval.description
               : mode === 'links'
