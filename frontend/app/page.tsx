@@ -78,10 +78,6 @@ export default function LandingPage() {
             I already have an account
           </Link>
         </div>
-
-        <p className="mt-4 text-[11px] text-muted-foreground">
-          No browser extension · encrypted X session · separate data per account
-        </p>
       </section>
 
       {/* three points */}
