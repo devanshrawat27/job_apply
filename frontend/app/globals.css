@@ -118,3 +118,9 @@
     background: color-mix(in oklab, var(--foreground) 18%, transparent);
   }
 }
+
+.font-display {
+  font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman",
+    serif;
+  font-feature-settings: "liga" 1, "kern" 1;
+}
