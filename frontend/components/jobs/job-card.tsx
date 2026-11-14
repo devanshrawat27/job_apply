@@ -113,10 +113,17 @@ export function JobCard({
       {needsYou ? (
         <div className="flex items-start gap-2 border-b border-amber-500/20 bg-amber-500/[0.06] px-4 py-2.5">
           <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
-          <p className="text-xs text-amber-800 dark:text-amber-200">
-            <span className="font-medium">Needs you: </span>
-            {job.decision_reason || 'the agent was not sure enough to send this on its own'}
+          <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-200">
+            <span className="font-medium">Why this needs you: </span>
+            {job.uncertainties?.length
+              ? job.uncertainties.slice(0, 2).join(' · ')
+              : job.decision_reason && !/^confidence \d/i.test(job.decision_reason)
+                ? job.decision_reason
+                : 'The agent was not sure enough to send this on its own.'}
           </p>
+          <span className="ml-auto shrink-0 text-[10px] text-amber-700/80 dark:text-amber-300/80">
+            confidence {Math.round((job.confidence || 0) * 100)}%
+          </span>
         </div>
       ) : null}
 
@@ -302,13 +309,6 @@ export function JobCard({
         ) : null}
 
         {/* warnings */}
-        {job.uncertainties?.length ? (
-          <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-border bg-muted/20 px-2.5 py-1.5 text-[11px] text-muted-foreground">
-            <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>{job.uncertainties.join(' · ')}</span>
-          </p>
-        ) : null}
-
         {job.spam_score >= 40 ? (
           <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
             <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
