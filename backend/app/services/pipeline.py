@@ -619,6 +619,28 @@ def send_batch(
         )
 
 
+def _expire_queued(db: Session, user_id: int | None, hours: int = 24) -> int:
+    """Skip queued posts that have waited too long to still be worth applying to."""
+    cutoff = _now() - timedelta(hours=hours)
+    stmt = select(JobPost).where(
+        JobPost.status == "queued", JobPost.discovered_at < cutoff
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+
+    expired = 0
+    for job in db.scalars(stmt).all():
+        job.status = "skipped"
+        job.decision_reason = f"expired - waited more than {hours}h in the queue"
+        job.reply_text = ""
+        job.dm_text = ""
+        _log(job, job.decision_reason)
+        expired += 1
+    if expired:
+        db.commit()
+    return expired
+
+
 def _send_batch(
     db: Session,
     *,
@@ -645,13 +667,18 @@ def _send_batch(
         if not creds:
             raise PipelineError("The stored X session could not be read. Reconnect the account.")
 
+        # A post that has been waiting for a day is usually filled or stale.
+        # Expire it instead of letting the queue grow forever.
+        stats["expired"] = _expire_queued(db, user_id)
+
         query = (
             select(JobPost)
             .where(JobPost.status == "queued")
             .order_by(
-                # Individuals and founders first, then the strongest match.
+                # Individuals and founders first, then the job that has waited
+                # longest. Relevance-first ordering let old queued posts starve
+                # behind a constant stream of new high-relevance ones.
                 case((JobPost.author_type == "person", 0), else_=1),
-                JobPost.relevance.desc(),
                 JobPost.id.asc(),
             )
         )
@@ -884,6 +911,15 @@ def _send_one(
         job.dm_text = ""
         job.decision_reason = f"job seeker post ({seeker}) - not a hiring post"
         _log(job, f"job seeker post ({seeker}) - nothing sent")
+        return {}
+
+    # Defensive: rows queued before the hiring-intent check got stricter.
+    if not discovery.looks_like_job_post(job.content or ""):
+        job.status = "skipped"
+        job.reply_text = ""
+        job.dm_text = ""
+        job.decision_reason = "not a direct hiring post - nothing sent"
+        _log(job, "not a direct hiring post - nothing sent")
         return {}
 
     profile = get_profile(db, job.user_id)

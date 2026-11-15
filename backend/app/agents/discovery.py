@@ -618,6 +618,36 @@ _JOB_SEEKER_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
         "dm me for referral",
         re.compile(r"\bdm\s+me\s+(?:for\s+)?(?:a\s+)?referrals?\b", re.I),
     ),
+    # Candidate pitches. These read like "hire me", not "we are hiring".
+    (
+        "exploring my next role",
+        re.compile(
+            r"\bexplor(?:ing|e)\s+my\s+next\s+(?:role|opportunit(?:y|ies))", re.I
+        ),
+    ),
+    (
+        "exploring opportunities",
+        re.compile(
+            r"\bi(?:\s+am|['’]m)\s+(?:actively\s+)?exploring\s+"
+            r"(?:new\s+|other\s+)?(?:opportunit(?:y|ies)|roles?|my\s+next)",
+            re.I,
+        ),
+    ),
+    (
+        "open to opportunities",
+        re.compile(r"\bopen\s+to\s+(?:new\s+|other\s+)?opportunit(?:y|ies)", re.I),
+    ),
+    (
+        "applying for a role",
+        re.compile(r"\bi(?:\s+am|['’]m)\s+(?:currently\s+|now\s+)?applying\s+for\b", re.I),
+    ),
+    (
+        "hiring? let's talk",
+        re.compile(r"\bhiring\s*\?\s*(?:let['’]?s\s+talk|dm\s+me|message\s+me)", re.I),
+    ),
+    ("available for hire", re.compile(r"\bavailable\s+for\s+(?:hire|work|opportunit)", re.I)),
+    ("hire me", re.compile(r"\bhire\s+me\b", re.I)),
+    ("my next role", re.compile(r"\bmy\s+next\s+(?:role|opportunity)\b", re.I)),
 )
 
 
@@ -645,7 +675,7 @@ def looks_like_job_post(text: str) -> bool:
     # job post.
     intent_phrases = (
         "we are hiring", "we're hiring", "now hiring", "is hiring", "hiring:",
-        "hiring alert", "urgent hiring", "hiring a ", "hiring an ", "hiring for",
+        "hiring alert", "job alert", "urgent hiring", "hiring a ", "hiring an ", "hiring for",
         "looking to hire", "we are looking for", "we're looking for",
         "looking for a ", "looking for an ", "looking for developers",
         "looking for engineers", "open role", "open position", "openings for",
@@ -681,6 +711,23 @@ def looks_like_job_post(text: str) -> bool:
         "hiring test", "prompt engineering course",
     )
     if any(marker in lowered for marker in commentary) and not has_apply:
+        return False
+
+    # Aggregator accounts ("apply links in reply", "check the replies") post
+    # lists of jobs, not a job. Replying to them cannot get anyone hired.
+    aggregator = (
+        "apply links in reply",
+        "apply link in reply",
+        "links in reply",
+        "link in the reply",
+        "check the replies",
+        "check replies",
+        "links in the comments",
+        "links in comments",
+        "follow for more such job",
+        "follow for more job updates",
+    )
+    if any(marker in lowered for marker in aggregator):
         return False
     return True
 
