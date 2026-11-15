@@ -73,6 +73,9 @@ class Profile(Base):
     current_role: Mapped[str] = mapped_column(String(200), default="")
     min_salary: Mapped[str] = mapped_column(String(80), default="")
     remote_ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Reject posts that do not look like the candidate's domain, even when no
+    # explicit non-tech keyword is present. On by default for tech profiles.
+    strict_fit: Mapped[bool] = mapped_column(Boolean, default=True)
 
     tone: Mapped[str] = mapped_column(String(60), default="friendly-professional")
     pitch: Mapped[str] = mapped_column(Text, default="")

@@ -378,6 +378,24 @@ export default function OnboardingPage() {
               </Field>
             </div>
 
+            <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3">
+              <input
+                type="checkbox"
+                checked={profile.strict_fit ?? true}
+                onChange={(e) => patchProfile({ strict_fit: e.target.checked })}
+                className="mt-0.5 size-4 shrink-0 accent-foreground"
+              />
+              <span>
+                <span className="block text-sm">
+                  Only show roles that match my domain and eligibility
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  Non-technical, customer-service, sales and ineligible roles are rejected
+                  before they reach Approvals. Recommended.
+                </span>
+              </span>
+            </label>
+
             <div className="flex flex-col gap-2">
               <p className="text-sm text-muted-foreground">Which roles are not a fit?</p>
               <p className="text-[11px] text-muted-foreground">

@@ -34,6 +34,7 @@ class ProfileIn(BaseModel):
     current_role: str = ""
     min_salary: str = ""
     remote_ok: bool = True
+    strict_fit: bool = True
     tone: str = "friendly-professional"
     pitch: str = ""
 

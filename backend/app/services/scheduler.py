@@ -23,7 +23,7 @@ from app.database import SessionLocal
 from app.models import JobPost, User
 from app.agents import analyst, inbox, watcher
 from app.config import settings
-from app.services import accounts, limits, pipeline
+from app.services import accounts, browser_chatgpt, limits, pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +203,21 @@ class AgentLoop(threading.Thread):
             if state.allowed:
                 send_run = pipeline.send_batch(db, limit=1, user_id=user_id)
                 logger.info("user %s send pass: %s %s", user_id, send_run.status, send_run.stats)
+
+        # 4b. Clear obvious mismatches from Approvals with the AI fit screen.
+        try:
+            from app.agents import job_filter
+
+            providers = pipeline.llm_providers(db, user_id)
+            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
+            if providers or settings.llm_enabled or use_browser:
+                fit_result = job_filter.review_batch(
+                    db, user_id, "pending", limit=10, providers=providers, browser=use_browser
+                )
+                logger.info("user %s auto fit screen: %s", user_id, fit_result)
+        except Exception:  # noqa: BLE001 - never break the loop
+            logger.warning("fit screen failed for user %s", user_id, exc_info=True)
+            db.rollback()
 
         # 4. Every few hours let the analyst (ChatGPT when configured) grade the
         # keywords and suggest better junior-friendly ones. It only stores

@@ -339,9 +339,24 @@ _TECH_SIGNALS = (
 _NON_TECH_SIGNALS = (
     "sales", "marketing", "business development", "business developer",
     "account executive", "account manager", "sales executive", "sales manager",
-    "recruiter", "customer support", "customer success", "content writer",
+    "recruiter", "customer support", "customer success", "customer service",
+    "customer care", "service consultant", "sales consultant", "content writer",
     "graphic designer", "operations manager", "human resources", "inside sales",
-    "lead generation", "partnerships manager", "growth manager",
+    "lead generation", "partnerships manager", "growth manager", "call centre",
+    "call center", "data entry", "virtual assistant", "administrative",
+    "receptionist", "telemarketing", "telesales", "bank teller", "bookkeeping",
+    "accountant", "insurance", "banking", "retail", "warehouse", "tutor",
+    "teacher", "nurse", "security guard", "civil engineer", "mechanical engineer",
+)
+
+# Unambiguous non-tech role titles. These reject even when the post also
+# mentions a generic word like "computer" or "developer".
+_CLEAR_NON_TECH_ROLES = (
+    "service consultant", "customer service", "customer care", "call centre",
+    "call center", "data entry", "virtual assistant", "receptionist",
+    "sales consultant", "telemarketing", "telesales", "bank teller",
+    "bookkeeping", "civil engineer", "mechanical engineer", "retail assistant",
+    "security guard", "warehouse assistant",
 )
 
 # Terms that genuinely describe a software job. Generic words like "developer"
@@ -363,9 +378,16 @@ def domain_mismatch(profile: Profile, text: str) -> str | None:
     looks_tech = any(signal in lowered for signal in _TECH_SIGNALS)
     looks_strong_tech = any(signal in lowered for signal in _STRONG_TECH_SIGNALS)
     looks_non_tech = any(signal in lowered for signal in _NON_TECH_SIGNALS)
+    clear_non_tech = any(signal in lowered for signal in _CLEAR_NON_TECH_ROLES)
+    strict = bool(getattr(profile, "strict_fit", True))
 
-    if domain == "tech" and looks_non_tech and not looks_strong_tech:
-        return "looks like a non-tech role"
+    if domain == "tech":
+        if clear_non_tech and not looks_strong_tech:
+            return "looks like a non-tech role"
+        if looks_non_tech and not looks_strong_tech:
+            return "looks like a non-tech role"
+        if strict and not looks_tech:
+            return "does not look like a technical role"
     if domain == "non-tech" and looks_tech and not looks_non_tech:
         return "looks like a tech role"
     return None

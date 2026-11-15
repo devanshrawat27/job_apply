@@ -201,6 +201,41 @@ def test_tech_resume_rejects_non_tech_post(db, monkeypatch):
     assert any("non-tech" in line for line in job.logs)
 
 
+def test_service_consultant_is_not_a_tech_role():
+    profile = Profile(
+        id=1,
+        job_title="Full Stack Developer",
+        skills=["react", "python"],
+        domain="tech",
+        strict_fit=True,
+    )
+    text = (
+        "Nedbank is hiring Service Consultants. Minimum requirements: Grade 12, "
+        "computer literacy, customer service. Visit their official site to apply."
+    )
+    assert discovery.domain_mismatch(profile, text) == "looks like a non-tech role"
+
+
+def test_strict_fit_rejects_posts_with_no_tech_signal():
+    profile = Profile(
+        id=1,
+        job_title="Full Stack Developer",
+        domain="tech",
+        strict_fit=True,
+    )
+    assert discovery.domain_mismatch(profile, "We are hiring. DM your resume.") is not None
+
+
+def test_strict_fit_off_allows_a_generic_post():
+    profile = Profile(
+        id=1,
+        job_title="Full Stack Developer",
+        domain="tech",
+        strict_fit=False,
+    )
+    assert discovery.domain_mismatch(profile, "We are hiring. DM your resume.") is None
+
+
 def test_business_developer_is_not_a_tech_role():
     profile = Profile(id=1, job_title="Full Stack Developer", skills=["react", "python"], domain="tech")
     text = (

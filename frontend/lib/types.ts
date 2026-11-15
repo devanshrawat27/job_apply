@@ -32,6 +32,7 @@ export interface Profile {
   current_role: string
   min_salary: string
   remote_ok: boolean
+  strict_fit?: boolean
   tone: string
   pitch: string
   github_username?: string
