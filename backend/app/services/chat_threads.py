@@ -39,7 +39,8 @@ def _now() -> datetime:
 
 def title_for(purpose: str) -> str:
     label = PURPOSES.get(purpose, purpose)
-    return f"{PROJECT_NAME} · {label}"
+    # Plain ASCII: the title is typed into ChatGPT, and a "·" comes back mangled.
+    return f"{PROJECT_NAME} - {label}"
 
 
 def _scope(stmt, user_id: int | None):

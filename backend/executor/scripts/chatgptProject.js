@@ -22,21 +22,10 @@ const watchdog = setTimeout(() => {
 }, HARD_DEADLINE_MS)
 
 const NAME = (process.env.SCRIPT_ARG_NAME || 'JobPilot').trim() || 'JobPilot'
-
-const PROJECT_LINK = 'a[href*="/g/g-p-"]'
-
-async function openSidebar(page) {
-  const open = page
-    .locator('button[aria-label="Open sidebar"], button[data-testid="open-sidebar-button"]')
-    .first()
-  if ((await open.count().catch(() => 0)) > 0) {
-    await open.click().catch(() => {})
-    await page.waitForTimeout(1200)
-  }
-}
+const PROJECTS_URL = 'https://chatgpt.com/projects'
 
 async function findProject(page) {
-  const links = page.locator(PROJECT_LINK)
+  const links = page.locator('a[href*="/g/g-p-"]')
   const count = await links.count().catch(() => 0)
   for (let i = 0; i < count; i += 1) {
     const link = links.nth(i)
@@ -49,70 +38,76 @@ async function findProject(page) {
   return ''
 }
 
+async function openProjects(page) {
+  await page.goto(PROJECTS_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  const deadline = Date.now() + 45000
+  while (Date.now() < deadline) {
+    const text = await page.locator('body').innerText().catch(() => '')
+    if (
+      text.includes('Search projects') ||
+      text.includes('Locked chats') ||
+      text.includes('New project')
+    ) {
+      return true
+    }
+    if ((await page.locator('a[href*="/g/g-p-"]').count().catch(() => 0)) > 0) return true
+    await page.waitForTimeout(1500)
+  }
+  return false
+}
+
 async function createProject(page) {
-  // The sidebar button, or the empty-state button on /projects.
-  const candidates = [
-    page.locator('button:has-text("New project")').first(),
-    page.locator('[role="button"]:has-text("New project")').first(),
-    page.locator('button[aria-label*="project" i]').first(),
-    page.locator('text=New project').first(),
-  ]
-  let clicked = false
-  for (const candidate of candidates) {
-    if ((await candidate.count().catch(() => 0)) > 0) {
-      await candidate.click({ timeout: 8000 }).catch(() => {})
-      clicked = true
+  const candidates = page.getByRole('button', { name: 'Create', exact: true })
+  let create = null
+  const total = await candidates.count().catch(() => 0)
+  for (let i = 0; i < total; i += 1) {
+    const button = candidates.nth(i)
+    if (await button.isVisible().catch(() => false)) {
+      create = button
       break
     }
   }
-  if (!clicked) return { ok: false, reason: 'no "New project" control' }
-
-  await page.waitForTimeout(2500)
-
-  const inputs = [
-    page.locator('input[placeholder*="project" i]').first(),
-    page.locator('input[name*="project" i]').first(),
-    page.locator('input[type="text"]').first(),
-    page.locator('[contenteditable="true"]').first(),
-  ]
-  let filled = false
-  for (const input of inputs) {
-    if ((await input.count().catch(() => 0)) > 0) {
-      await input.click().catch(() => {})
-      await input.fill(NAME).catch(async () => {
-        await input.type(NAME, { delay: 20 }).catch(() => {})
-      })
-      filled = true
-      break
-    }
+  if (create === null) {
+    return { ok: false, reason: 'no Create button on the projects page' }
   }
-  if (!filled) return { ok: false, reason: 'no project name field' }
+  await create.click({ timeout: 10000 }).catch(() => {})
 
-  await page.waitForTimeout(700)
-
-  const submit = [
-    page.locator('button:has-text("Create project")').first(),
-    page.locator('button:has-text("Create")').first(),
-    page.locator('button[type="submit"]').first(),
-  ]
-  let submitted = false
-  for (const button of submit) {
-    if ((await button.count().catch(() => 0)) > 0 && (await button.isEnabled().catch(() => false))) {
-      await button.click().catch(() => {})
-      submitted = true
-      break
-    }
+  const dialog = page.locator('[role="dialog"]').last()
+  const dialogDeadline = Date.now() + 15000
+  while (Date.now() < dialogDeadline) {
+    if ((await dialog.count().catch(() => 0)) > 0) break
+    await page.waitForTimeout(500)
   }
-  if (!submitted) await page.keyboard.press('Enter').catch(() => {})
+  if ((await dialog.count().catch(() => 0)) === 0) {
+    return { ok: false, reason: 'Create did not open a project dialog' }
+  }
 
-  // The new project opens immediately; otherwise wait for the sidebar link.
-  const deadline = Date.now() + 30000
+  const input = dialog.locator('input').first()
+  await input.click({ timeout: 8000 }).catch(() => {})
+  await input.fill(NAME).catch(async () => {
+    await input.type(NAME, { delay: 20 }).catch(() => {})
+  })
+  await page.waitForTimeout(500)
+
+  const submit = dialog.getByRole('button', { name: 'Create project' }).first()
+  if ((await submit.count().catch(() => 0)) === 0) {
+    return { ok: false, reason: 'no Create project button in the dialog' }
+  }
+  await submit.click({ timeout: 10000 }).catch(() => {})
+
+  // The dialog closes and the new project opens. If it does not navigate,
+  // fall back to finding the new row in the projects list.
+  const deadline = Date.now() + 40000
   while (Date.now() < deadline) {
     await page.waitForTimeout(1500)
     if (page.url().includes('/g/g-p-')) return { ok: true, url: page.url() }
-    await openSidebar(page)
-    const url = await findProject(page)
-    if (url) return { ok: true, url }
+    const found = await findProject(page)
+    if (found) return { ok: true, url: found }
+    if ((await dialog.count().catch(() => 0)) === 0) {
+      await page.waitForTimeout(2000)
+      const after = await findProject(page)
+      if (after) return { ok: true, url: after }
+    }
   }
   return { ok: false, reason: 'project did not appear after create' }
 }
@@ -121,9 +116,17 @@ async function main() {
   const { context, page } = await launchChatgpt()
   try {
     await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded', timeout: 60000 })
-    await page.waitForTimeout(5000)
 
-    if (!(await isLoggedIn(page))) {
+    let ready = false
+    const loginDeadline = Date.now() + 40000
+    while (Date.now() < loginDeadline) {
+      await page.waitForTimeout(2500)
+      if (await isLoggedIn(page)) {
+        ready = true
+        break
+      }
+    }
+    if (!ready) {
       reportFail(
         'CHATGPT_LOGIN_REQUIRED',
         'ChatGPT is not logged in. Open Settings -> AI analyst and press "Connect ChatGPT".',
@@ -132,7 +135,16 @@ async function main() {
     }
     markConnected()
 
-    await openSidebar(page)
+    const projectsReady = await openProjects(page)
+    if (!projectsReady) {
+      const diagnostic = (await page.locator('body').innerText().catch(() => '')).slice(0, 400)
+      reportFail(
+        'PROJECT_UI_UNKNOWN',
+        `The projects page did not load. Try again in a moment. ${diagnostic}`,
+      )
+      return
+    }
+
     const existing = await findProject(page)
     if (existing) {
       reportOk({ project_url: existing, created: false, name: NAME })
@@ -141,7 +153,7 @@ async function main() {
 
     const created = await createProject(page)
     if (!created.ok) {
-      const diagnostic = (await page.locator('body').innerText().catch(() => '')).slice(0, 600)
+      const diagnostic = (await page.locator('body').innerText().catch(() => '')).slice(0, 400)
       reportFail(
         'PROJECT_UI_UNKNOWN',
         `Could not create the project (${created.reason}). Create "${NAME}" once in ChatGPT, then reconnect. ${diagnostic}`,

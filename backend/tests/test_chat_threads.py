@@ -12,7 +12,7 @@ def test_thread_is_created_once_and_reused():
         first = chat_threads.ensure(db, 1, "fit")
         second = chat_threads.ensure(db, 1, "fit")
         assert first.id == second.id
-        assert first.title == "JobPilot · Job fit checks"
+        assert first.title == "JobPilot - Job fit checks"
         assert first.url == ""
     finally:
         db.close()
