@@ -72,6 +72,11 @@ def send_application(
     message["From"] = cfg.get("from_address") or cfg.get("username") or ""
     message["To"] = target
     message["Subject"] = subject[:200]
+    # Gmail's SMTP submission does not reliably save to "Sent". BCC the sender
+    # so a copy lands in their inbox as proof/record.
+    sender_copy = cfg.get("from_address") or cfg.get("username") or ""
+    if sender_copy:
+        message["Bcc"] = sender_copy
     if reply_to:
         message["Reply-To"] = reply_to
     message.set_content(body)

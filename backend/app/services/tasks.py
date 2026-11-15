@@ -12,7 +12,13 @@ from app.services import pipeline
 logger = logging.getLogger(__name__)
 
 
-def _worker(run_id: int, kind: str, job_ids: list[int] | None, user_id: int | None) -> None:
+def _worker(
+    run_id: int,
+    kind: str,
+    job_ids: list[int] | None,
+    user_id: int | None,
+    force: bool = False,
+) -> None:
     db = SessionLocal()
     try:
         run = db.get(Run, run_id)
@@ -21,7 +27,7 @@ def _worker(run_id: int, kind: str, job_ids: list[int] | None, user_id: int | No
         if kind == "scan":
             pipeline.scan(db, manual=True, run=run, user_id=user_id)
         else:
-            pipeline.send_batch(db, job_ids=job_ids, run=run, user_id=user_id)
+            pipeline.send_batch(db, job_ids=job_ids, run=run, user_id=user_id, force=force)
     except Exception as exc:  # noqa: BLE001
         logger.exception("background %s failed", kind)
         run = db.get(Run, run_id)
@@ -33,7 +39,12 @@ def _worker(run_id: int, kind: str, job_ids: list[int] | None, user_id: int | No
         db.close()
 
 
-def start(kind: str, job_ids: list[int] | None = None, user_id: int | None = None) -> Run:
+def start(
+    kind: str,
+    job_ids: list[int] | None = None,
+    user_id: int | None = None,
+    force: bool = False,
+) -> Run:
     """Create the run row, then execute the pass on a daemon thread."""
     db = SessionLocal()
     try:
@@ -49,7 +60,7 @@ def start(kind: str, job_ids: list[int] | None = None, user_id: int | None = Non
 
     threading.Thread(
         target=_worker,
-        args=(run_id, kind, job_ids, user_id),
+        args=(run_id, kind, job_ids, user_id, force),
         name=f"{kind}-run-{run_id}",
         daemon=True,
     ).start()

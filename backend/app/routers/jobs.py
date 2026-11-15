@@ -9,7 +9,7 @@ from app.deps import CurrentUser
 from app.llm import LLMUnavailable
 from app.models import ActionLog, DraftExample, JobPost
 from app.schemas import ApproveIn, JobOut
-from app.services import browser_chatgpt, pipeline, tasks
+from app.services import browser_chatgpt, email_accounts, limits, pipeline, tasks
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -141,6 +141,20 @@ def send_now(
         raise HTTPException(status_code=409, detail="this job is already sent or sending")
 
     payload = payload or ApproveIn(approved=True)
+
+    settings_row = pipeline.get_settings_row(db, job.user_id)
+    if job.outreach_method == "email" and not email_accounts.configured(db, job.user_id):
+        raise HTTPException(
+            status_code=409,
+            detail="Email is not verified. Connect it in Settings, then try again.",
+        )
+    action = "email" if job.outreach_method == "email" else (
+        "reply" if settings_row.use_public_reply else "dm"
+    )
+    state = limits.check(db, settings_row, action)
+    if not state.allowed:
+        raise HTTPException(status_code=409, detail=state.reason)
+
     job = pipeline.approve(
         db,
         job,
@@ -148,7 +162,7 @@ def send_now(
         reply_text=payload.reply_text,
         dm_text=payload.dm_text,
     )
-    tasks.start("send", [job.id], user_id=job.user_id)
+    tasks.start("send", [job.id], user_id=job.user_id, force=True)
     db.refresh(job)
     return job
 

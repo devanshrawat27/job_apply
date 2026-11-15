@@ -600,9 +600,12 @@ def send_batch(
     limit: int | None = None,
     run: Run | None = None,
     user_id: int | None = None,
+    force: bool = False,
 ) -> Run:
     with _send_lock:
-        return _send_batch(db, job_ids=job_ids, limit=limit, run=run, user_id=user_id)
+        return _send_batch(
+            db, job_ids=job_ids, limit=limit, run=run, user_id=user_id, force=force
+        )
 
 
 def _send_batch(
@@ -612,6 +615,7 @@ def _send_batch(
     limit: int | None = None,
     run: Run | None = None,
     user_id: int | None = None,
+    force: bool = False,
 ) -> Run:
     if run is None:
         run = Run(kind="send", status="running", user_id=user_id)
@@ -657,7 +661,7 @@ def _send_batch(
             job.status = "sending"
             db.commit()
 
-            outcome = _send_one(db, job, account, settings_row, creds)
+            outcome = _send_one(db, job, account, settings_row, creds, force=force)
             stats["attempted"] += 1
 
             if outcome.get("stop"):
@@ -703,16 +707,17 @@ def _send_batch(
 def _email_body(profile: Profile, job: JobPost) -> tuple[str, str]:
     """Return (subject, body) for an application email."""
     role = job.role or "the role"
-    company = job.company or "your team"
+    company = (job.company or "").strip()
     name = profile.full_name or "the candidate"
 
     links = profile.links or {}
-    link_line = " Â· ".join(
+    link_line = " · ".join(
         value for value in (links.get("portfolio"), links.get("github"), links.get("linkedin")) if value
     )
 
+    greeting = f"Hi {company} team," if company else "Hi there,"
     body_lines = [
-        f"Hi {company} team,",
+        greeting,
         "",
         job.dm_text or "I would like to apply for this role.",
         "",
@@ -724,7 +729,10 @@ def _email_body(profile: Profile, job: JobPost) -> tuple[str, str]:
     if profile.phone:
         body_lines.append(profile.phone)
 
-    subject = f"Application: {role}" f"{f' at {job.company}' if job.company else ''} â€” {name}"
+    subject = f"Application: {role}"
+    if company:
+        subject += f" at {company}"
+    subject += f" - {name}"
     return subject, "\n".join(body_lines)
 
 
@@ -814,6 +822,8 @@ def _send_one(
     account: XAccount,
     settings_row: AgentSettings,
     creds: dict,
+    *,
+    force: bool = False,
 ) -> dict:
     """Apply to one post using the method the post actually asks for."""
     method = job.outreach_method or "dm"
@@ -884,7 +894,7 @@ def _send_one(
         if job.email_status not in ("none", "pending"):
             return {}
 
-        state = limits.check(db, settings_row, "email")
+        state = limits.check(db, settings_row, "email", ignore_gap=force)
         if not state.allowed:
             return {"deferred": state.reason}
 
@@ -947,7 +957,7 @@ def _send_one(
         and job.reply_text
         and job.reply_status in ("none", "pending")
     ):
-        state = limits.check(db, settings_row, "reply")
+        state = limits.check(db, settings_row, "reply", ignore_gap=force)
         if not state.allowed:
             return {"deferred": state.reason}
 
@@ -1061,7 +1071,7 @@ def _send_one(
         if job.reply_status == "unknown":
             return {"deferred": "reply outcome unknown - not sending a DM on top"}
 
-        state = limits.check(db, settings_row, "dm")
+        state = limits.check(db, settings_row, "dm", ignore_gap=force)
         if not state.allowed:
             return {"deferred": state.reason}
 

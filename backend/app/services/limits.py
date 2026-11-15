@@ -80,7 +80,14 @@ def _last_write_at(db: Session, user_id: int | None = None) -> datetime | None:
     return db.scalar(stmt)
 
 
-def check(db: Session, settings: AgentSettings, action: str, now: datetime | None = None) -> LimitState:
+def check(
+    db: Session,
+    settings: AgentSettings,
+    action: str,
+    now: datetime | None = None,
+    *,
+    ignore_gap: bool = False,
+) -> LimitState:
     now = now or datetime.now(timezone.utc)
     user_id = settings.user_id
     replies = _count_today(db, ("reply",), now, user_id)
@@ -93,6 +100,9 @@ def check(db: Session, settings: AgentSettings, action: str, now: datetime | Non
         return LimitState(False, f"daily reply cap reached ({settings.daily_reply_cap})", replies, dms)
     if action in ("dm", "email") and dms >= settings.daily_dm_cap:
         return LimitState(False, f"daily outreach cap reached ({settings.daily_dm_cap})", replies, dms)
+
+    if ignore_gap:
+        return LimitState(True, "", replies, dms)
 
     last = _last_write_at(db, user_id)
     if last is not None:
