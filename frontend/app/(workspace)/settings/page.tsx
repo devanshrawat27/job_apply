@@ -765,10 +765,7 @@ export default function SettingsPage() {
             <MailIcon className="size-4" />
             Email applications
           </CardTitle>
-          <CardDescription>
-            When a post says “mail your resume to …”, the agent emails it with your resume
-            attached.
-          </CardDescription>
+          <CardDescription>Send applications from your own email address.</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <ConnectEmail

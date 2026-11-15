@@ -22,7 +22,7 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
   const [status, setStatus] = useState<EmailAccount | null>(null)
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
-  const [busy, setBusy] = useState<'save' | 'test' | 'delete' | null>(null)
+  const [busy, setBusy] = useState<'save' | 'delete' | null>(null)
   const [form, setForm] = useState({ ...EMPTY })
 
   async function load() {
@@ -37,7 +37,7 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
         from_address: next.from_address || '',
         starttls: next.starttls ?? true,
       })
-      setEditing(!next.configured)
+      setEditing(!next.configured || next.source === 'env')
     } catch (err) {
       toast.error((err as Error).message)
     } finally {
@@ -50,41 +50,28 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
   }, [])
 
   async function save() {
-    if (!form.host.trim() || !form.username.trim() || !form.password.trim()) {
-      toast.error('Host, address and app password are required')
+    if (!form.username.trim() || !form.password.trim()) {
+      toast.error('Enter your email address and app password')
       return
     }
     setBusy('save')
     try {
       await api.saveEmailAccount({
-        host: form.host.trim(),
+        host: form.host.trim() || 'smtp.gmail.com',
         port: Number(form.port) || 587,
         username: form.username.trim(),
         password: form.password.trim(),
         from_address: form.from_address.trim(),
         starttls: form.starttls,
       })
-      const result = await api.testEmailAccount()
-      if (result.ok) {
-        toast.success('Email connected and verified')
-      } else {
-        toast.warning(`Saved, but the login test failed: ${result.error}`)
-      }
       await load()
       onSaved?.()
-    } catch (err) {
-      toast.error((err as Error).message)
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  async function test() {
-    setBusy('test')
-    try {
-      const result = await api.testEmailAccount()
-      if (result.ok) toast.success('SMTP login works')
-      else toast.error(result.error || 'Login failed')
+      const check = await api.testEmailAccount()
+      if (check.ok) {
+        toast.success('Email connected')
+      } else {
+        toast.error(check.error || 'Gmail rejected the login')
+      }
     } catch (err) {
       toast.error((err as Error).message)
     } finally {
@@ -122,19 +109,13 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
           <CheckCircle2Icon className="mt-0.5 size-4 text-emerald-500" />
           <div>
             <p className="text-sm font-medium">{status.from_address || status.username}</p>
-            <p className="text-[11px] text-muted-foreground">
-              {status.host}:{status.port} · {status.starttls ? 'STARTTLS' : 'SSL'}
-            </p>
+            <p className="text-[11px] text-muted-foreground">Connected</p>
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void test()}>
-            {busy === 'test' ? <Loader2Icon className="animate-spin" /> : null}
-            Test
-          </Button>
-          <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setEditing(true)}>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => setEditing(true)}>
             <PencilIcon />
-            Change
+            Edit
           </Button>
           <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => void disconnect()}>
             <Trash2Icon />
@@ -145,43 +126,8 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
     )
   }
 
-  if (status?.configured && status.source === 'env') {
-    return (
-      <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-xs text-muted-foreground">
-        Using the server fallback address <span className="text-foreground">{status.from_address}</span>.
-        Connect your own address below to send from it.
-        <div className="mt-2">
-          <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
-            <MailIcon />
-            Connect my email
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex flex-col gap-3">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-          SMTP host
-          <Input
-            value={form.host}
-            onChange={(e) => setForm({ ...form, host: e.target.value })}
-            placeholder="smtp.gmail.com"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-          Port
-          <Input
-            type="number"
-            value={form.port}
-            onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
-            placeholder="587"
-          />
-        </label>
-      </div>
-
       <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
         Email address
         <Input
@@ -203,29 +149,45 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
         />
       </label>
 
-      <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-        From address (optional)
-        <Input
-          value={form.from_address}
-          onChange={(e) => setForm({ ...form, from_address: e.target.value })}
-          placeholder="Same as the email above"
-        />
-      </label>
-
-      <label className="flex cursor-pointer items-start gap-2 text-xs text-muted-foreground">
-        <input
-          type="checkbox"
-          checked={form.starttls}
-          onChange={(e) => setForm({ ...form, starttls: e.target.checked })}
-          className="mt-0.5 size-4 accent-foreground"
-        />
-        Use STARTTLS (port 587). Turn off for SSL-only providers (port 465).
-      </label>
+      <details className="rounded-lg border border-border px-3 py-2">
+        <summary className="cursor-pointer text-[11px] text-muted-foreground">
+          Other email provider
+        </summary>
+        <div className="flex flex-col gap-3 pt-3">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              SMTP host
+              <Input
+                value={form.host}
+                onChange={(e) => setForm({ ...form, host: e.target.value })}
+                placeholder="smtp.gmail.com"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
+              Port
+              <Input
+                type="number"
+                value={form.port}
+                onChange={(e) => setForm({ ...form, port: Number(e.target.value) })}
+              />
+            </label>
+          </div>
+          <label className="flex cursor-pointer items-start gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={form.starttls}
+              onChange={(e) => setForm({ ...form, starttls: e.target.checked })}
+              className="mt-0.5 size-4 accent-foreground"
+            />
+            STARTTLS (port 587). Turn off for SSL-only providers.
+          </label>
+        </div>
+      </details>
 
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" disabled={busy !== null} onClick={() => void save()}>
           {busy === 'save' ? <Loader2Icon className="animate-spin" /> : <MailIcon />}
-          Save &amp; test
+          Connect email
         </Button>
         {status?.configured ? (
           <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setEditing(false)}>
@@ -233,7 +195,7 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
           </Button>
         ) : null}
         <span className="text-[11px] text-muted-foreground">
-          Gmail: use an App Password, not your normal password.
+          Gmail: create an App Password in Google Account → Security.
         </span>
       </div>
     </div>

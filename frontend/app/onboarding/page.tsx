@@ -512,10 +512,6 @@ export default function OnboardingPage() {
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
             <ConnectEmail />
-            <p className="text-[11px] text-muted-foreground">
-              Gmail needs an App Password (Google Account → Security → App passwords). You can
-              skip this and connect later from Settings → Email applications.
-            </p>
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <Button variant="ghost" onClick={() => setStep(2)}>
                 <ArrowLeftIcon />

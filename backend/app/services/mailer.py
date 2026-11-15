@@ -85,24 +85,46 @@ def send_application(
 
     host = cfg.get("host") or ""
     port = int(cfg.get("port") or 587)
+    user = cfg.get("username") or ""
+    password = (cfg.get("password") or "").replace(" ", "").strip()
 
-    try:
-        if cfg.get("starttls", True):
-            with smtplib.SMTP(host, port, timeout=timeout) as server:
+    def deliver(use_starttls: bool, use_port: int) -> None:
+        if use_starttls:
+            with smtplib.SMTP(host, use_port, timeout=timeout) as server:
                 server.starttls(context=ssl.create_default_context())
-                server.login(cfg.get("username") or "", cfg.get("password") or "")
+                server.login(user, password)
                 server.send_message(message)
         else:
-            with smtplib.SMTP_SSL(host, port, timeout=timeout) as server:
-                server.login(cfg.get("username") or "", cfg.get("password") or "")
+            with smtplib.SMTP_SSL(host, use_port, timeout=timeout) as server:
+                server.login(user, password)
                 server.send_message(message)
+
+    try:
+        deliver(bool(cfg.get("starttls", True)), port)
     except smtplib.SMTPAuthenticationError:
         return {
             "success": False,
             "code": "EMAIL_AUTH",
-            "error": "SMTP rejected the login. Check the address / app password in Settings.",
+            "error": "Gmail rejected the login. Re-enter the 16-character App Password in Settings.",
         }
-    except (smtplib.SMTPException, OSError) as exc:
+    except (smtplib.SMTPServerDisconnected, ConnectionResetError, OSError) as exc:
+        # Port 587 is blocked on some networks; Gmail also accepts SSL on 465.
+        if port == 587 and cfg.get("starttls", True):
+            try:
+                deliver(False, 465)
+                return {"success": True, "code": "OK", "error": ""}
+            except smtplib.SMTPAuthenticationError:
+                return {
+                    "success": False,
+                    "code": "EMAIL_AUTH",
+                    "error": "Gmail rejected the login. Re-enter the App Password in Settings.",
+                }
+            except (smtplib.SMTPException, OSError) as retry_exc:
+                logger.warning("email send failed: %s", retry_exc)
+                return {"success": False, "code": "ERROR", "error": f"email failed: {retry_exc}"}
+        logger.warning("email send failed: %s", exc)
+        return {"success": False, "code": "ERROR", "error": f"email failed: {exc}"}
+    except smtplib.SMTPException as exc:
         logger.warning("email send failed: %s", exc)
         return {"success": False, "code": "ERROR", "error": f"email failed: {exc}"}
 
