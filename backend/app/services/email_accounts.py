@@ -164,13 +164,13 @@ def test_connection(cfg: dict, timeout: int = 20) -> dict:
                 if isinstance(retry_exc, smtplib.SMTPServerDisconnected):
                     return {
                         "ok": False,
-                        "error": "Gmail closed the connection. That usually means the App Password is wrong — create a new one and try again.",
+                        "error": "Gmail rejected the login (535 BadCredentials). The App Password is wrong, expired, or belongs to a different Google account.",
                     }
                 return {"ok": False, "error": f"connection failed: {retry_exc}"}
         if isinstance(exc, smtplib.SMTPServerDisconnected):
             return {
                 "ok": False,
-                "error": "Gmail closed the connection. That usually means the App Password is wrong — create a new one and try again.",
+                "error": "Gmail rejected the login (535 BadCredentials). The App Password is wrong, expired, or belongs to a different Google account.",
             }
         return {"ok": False, "error": f"connection failed: {exc}"}
     except smtplib.SMTPException as exc:

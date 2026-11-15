@@ -121,7 +121,19 @@ def send_application(
                 }
             except (smtplib.SMTPException, OSError) as retry_exc:
                 logger.warning("email send failed: %s", retry_exc)
+                if isinstance(retry_exc, smtplib.SMTPServerDisconnected):
+                    return {
+                        "success": False,
+                        "code": "EMAIL_AUTH",
+                        "error": "Gmail rejected the login (535 BadCredentials). Re-enter a fresh App Password in Settings.",
+                    }
                 return {"success": False, "code": "ERROR", "error": f"email failed: {retry_exc}"}
+        if isinstance(exc, smtplib.SMTPServerDisconnected):
+            return {
+                "success": False,
+                "code": "EMAIL_AUTH",
+                "error": "Gmail rejected the login (535 BadCredentials). Re-enter a fresh App Password in Settings.",
+            }
         logger.warning("email send failed: %s", exc)
         return {"success": False, "code": "ERROR", "error": f"email failed: {exc}"}
     except smtplib.SMTPException as exc:

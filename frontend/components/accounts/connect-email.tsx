@@ -79,9 +79,10 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
         onSaved?.()
         toast.success('Email connected')
       } else {
-        // Do not show a false "connected" state. Remove the unverified row.
+        // Do not show a false "connected" state. Remove the unverified row but
+        // keep the typed values so the user can correct the password.
         await api.deleteEmailAccount().catch(() => null)
-        await load()
+        setStatus(null)
         toast.error(check.error || 'Gmail rejected the login')
       }
     } catch (err) {
