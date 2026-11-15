@@ -38,6 +38,7 @@ SCRIPTS: dict[str, str] = {
     "chatgpt_ask": "scripts/chatgptAsk.js",
     "chatgpt_login": "scripts/chatgptLogin.js",
     "chatgpt_whoami": "scripts/chatgptWhoami.js",
+    "chatgpt_project": "scripts/chatgptProject.js",
     "check_inbox": "scripts/checkInbox.js",
 }
 
@@ -51,6 +52,7 @@ TIMEOUTS: dict[str, int] = {
     "chatgpt_ask": 220,
     "chatgpt_login": 340,
     "chatgpt_whoami": 100,
+    "chatgpt_project": 200,
     "check_inbox": 130,
 }
 

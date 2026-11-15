@@ -26,7 +26,7 @@ import { Input } from '@/components/ui/input'
 import { Separator, Skeleton } from '@/components/ui/misc'
 import { api } from '@/lib/api'
 import { useWorkspace } from '@/lib/use-workspace'
-import type { AgentSettings, KeywordsSnapshot, LLMKey } from '@/lib/types'
+import type { AgentSettings, ChatThread, KeywordsSnapshot, LLMKey } from '@/lib/types'
 
 function Toggle({
   checked,
@@ -81,6 +81,12 @@ export default function SettingsPage() {
     plan: string
   } | null>(null)
   const [connecting, setConnecting] = useState(false)
+  const [project, setProject] = useState<{
+    project_url: string
+    project_name: string
+    threads: ChatThread[]
+  } | null>(null)
+  const [creatingProject, setCreatingProject] = useState(false)
 
   useEffect(() => {
     if (settings) setForm(settings)
@@ -106,7 +112,16 @@ export default function SettingsPage() {
           api
             .chatgptAccount()
             .then(setChatgptAccount)
-            .catch(() => setChatgptAccount(null))
+            .catch(() => {
+              // The saved session expired. account() clears the backend marker,
+              // so re-reading the status flips the card back to "Connect".
+              setChatgptAccount(null)
+              api.chatgptStatus().then(setChatgpt).catch(() => {})
+            })
+          api
+            .chatgptProject()
+            .then(setProject)
+            .catch(() => setProject(null))
         }
       })
       .catch(() => setChatgpt(null))
@@ -228,12 +243,15 @@ export default function SettingsPage() {
     setConnecting(true)
     toast.info('Chromium is opening — log in to ChatGPT in that window (waiting up to 5 minutes).')
     try {
-      await api.connectChatgpt()
+      const result = await api.connectChatgpt()
       setChatgpt({ connected: true, enabled: true })
       patch({ chatgpt_browser_enabled: true })
       const info = await api.chatgptAccount().catch(() => null)
       setChatgptAccount(info)
-      toast.success('ChatGPT connected')
+      const created = await api.chatgptProject().catch(() => null)
+      setProject(created)
+      if (result.project_error) toast.error(result.project_error)
+      else toast.success('ChatGPT connected')
     } catch (err) {
       toast.error((err as Error).message)
       const status = await api.chatgptStatus().catch(() => null)
@@ -243,11 +261,25 @@ export default function SettingsPage() {
     }
   }
 
+  async function createChatgptProject() {
+    setCreatingProject(true)
+    try {
+      const created = await api.createChatgptProject()
+      setProject(created)
+      toast.success('ChatGPT project ready')
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setCreatingProject(false)
+    }
+  }
+
   async function disconnectChatgpt() {
     try {
       await api.disconnectChatgpt()
       setChatgpt({ connected: false, enabled: false })
       setChatgptAccount(null)
+      setProject(null)
       patch({ chatgpt_browser_enabled: false })
       toast.success('ChatGPT disconnected')
     } catch (err) {
@@ -700,6 +732,68 @@ export default function SettingsPage() {
                   label="Use ChatGPT for analysis and drafts"
                   hint="Runs in Chromium. No API key needed."
                 />
+              </div>
+
+              <div className="mt-3 border-t border-border pt-3">
+                {project?.project_url ? (
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-[11px] text-muted-foreground">
+                        Project · {project.project_name}
+                      </p>
+                      <a
+                        href={project.project_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] underline underline-offset-4"
+                      >
+                        Open
+                      </a>
+                    </div>
+                    <div className="flex flex-col gap-1.5">
+                      {project.threads.map((thread) => (
+                        <div
+                          key={thread.purpose}
+                          className="flex items-center justify-between gap-2 rounded-lg border border-border px-2.5 py-1.5"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate text-xs">{thread.label}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {thread.messages
+                                ? `${thread.messages} messages`
+                                : 'starts on first use'}
+                            </p>
+                          </div>
+                          {thread.url ? (
+                            <a
+                              href={thread.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="shrink-0 text-[11px] underline underline-offset-4"
+                            >
+                              Open
+                            </a>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Chats are not grouped in a project yet.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={creatingProject}
+                      onClick={() => void createChatgptProject()}
+                    >
+                      {creatingProject ? <Loader2Icon className="animate-spin" /> : null}
+                      Create project
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           ) : (

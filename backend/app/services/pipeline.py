@@ -315,7 +315,7 @@ def scan(
         examples = list(db.scalars(examples_stmt).all())
         draft_deadline = _now() + timedelta(seconds=DRAFT_BUDGET_S)
         providers = llm_providers(db, user_id)
-        browser_draft = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+        browser_draft = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
         for job in fresh_rows:
             row = scored.get(job.post_id, {})
             job.relevance = int(row.get("relevance") or 0)

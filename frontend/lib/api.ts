@@ -2,6 +2,7 @@ import type {
   Account,
   AgentSettings,
   AuthStatus,
+  ChatThread,
   Dashboard,
   EmailAccount,
   Health,
@@ -272,15 +273,41 @@ export const api = {
   refreshInsight: () =>
     mutate<{ insight: Insight }>('/llm/insights/refresh', { method: 'POST' }),
   chatgptStatus: () =>
-    request<{ connected: boolean; enabled: boolean; profile: string }>('/llm/chatgpt/status'),
+    request<{
+      connected: boolean
+      enabled: boolean
+      profile: string
+      project_url: string
+      project_name: string
+    }>('/llm/chatgpt/status'),
   chatgptAccount: () =>
     request<{ email: string; name: string; plan: string }>('/llm/chatgpt/account'),
+  chatgptProject: () =>
+    request<{
+      project_url: string
+      project_name: string
+      connected: boolean
+      threads: ChatThread[]
+    }>('/llm/chatgpt/project'),
+  createChatgptProject: () =>
+    mutate<{
+      project_url: string
+      project_name: string
+      connected: boolean
+      created: boolean
+      threads: ChatThread[]
+    }>('/llm/chatgpt/project', { method: 'POST' }),
   watcherLatest: () =>
     request<{ report: WatcherReport | null }>('/llm/watcher/latest'),
   watcherCheck: () =>
     mutate<{ report: WatcherReport }>('/llm/watcher/check', { method: 'POST' }),
   connectChatgpt: () =>
-    mutate<{ connected: boolean; enabled: boolean }>('/llm/chatgpt/connect', { method: 'POST' }),
+    mutate<{
+      connected: boolean
+      enabled: boolean
+      project_url: string
+      project_error: string
+    }>('/llm/chatgpt/connect', { method: 'POST' }),
   disconnectChatgpt: () =>
     mutate<{ connected: boolean; enabled: boolean }>('/llm/chatgpt/disconnect', {
       method: 'POST',

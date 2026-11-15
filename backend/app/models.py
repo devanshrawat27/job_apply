@@ -155,6 +155,10 @@ class AgentSettings(Base):
     # Use the logged-in chatgpt.com browser session for the analyst when no API
     # key exists. Off by default; the human connects ChatGPT in Settings.
     chatgpt_browser_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The ChatGPT project that holds every agent conversation, e.g.
+    # https://chatgpt.com/g/g-p-.../project
+    chatgpt_project_url: Mapped[str] = mapped_column(String(500), default="")
+    chatgpt_project_name: Mapped[str] = mapped_column(String(120), default="JobPilot")
     # People whose X inbox is closed. The agent never DMs them again; posts from
     # them still get a public reply when one is possible.
     closed_inbox_handles: Mapped[list] = mapped_column(JSON, default=list)
@@ -291,6 +295,31 @@ class DraftExample(Base):
     role: Mapped[str] = mapped_column(String(200), default="")
     reply_text: Mapped[str] = mapped_column(Text, default="")
     dm_text: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ChatThread(Base):
+    """One long-lived ChatGPT conversation per purpose, per user.
+
+    The agent resumes the same conversation every time instead of starting a new
+    chat, so ChatGPT keeps the context of what it already checked and drafted.
+    Conversations live inside the user's "JobPilot" project.
+    """
+
+    __tablename__ = "chat_thread"
+    __table_args__ = (UniqueConstraint("user_id", "purpose", name="uq_chat_thread_user_purpose"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    # fit | draft | watch | keywords
+    purpose: Mapped[str] = mapped_column(String(40))
+    title: Mapped[str] = mapped_column(String(160), default="")
+    url: Mapped[str] = mapped_column(String(500), default="")
+    project_url: Mapped[str] = mapped_column(String(500), default="")
+    messages: Mapped[int] = mapped_column(Integer, default=0)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

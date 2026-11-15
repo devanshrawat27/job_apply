@@ -231,6 +231,15 @@ export interface LLMKey {  id: number
   enabled: boolean
 }
 
+export interface ChatThread {
+  purpose: string
+  label: string
+  title: string
+  url: string
+  messages: number
+  last_used_at: string | null
+}
+
 export interface InsightPayload {
   keyword_verdicts: { keyword: string; verdict: string; why: string }[]
   new_keywords: { keyword: string; why: string }[]

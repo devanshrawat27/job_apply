@@ -140,6 +140,48 @@ def chatgpt_status(user: CurrentUser = None, db: Session = Depends(get_db)):
         "connected": browser_chatgpt.connected(uid),
         "enabled": bool(row.chatgpt_browser_enabled),
         "profile": str(browser_chatgpt.marker_path(uid).parent),
+        "project_url": row.chatgpt_project_url or "",
+        "project_name": row.chatgpt_project_name or "JobPilot",
+    }
+
+
+@router.get("/chatgpt/project")
+def chatgpt_project(user: CurrentUser = None, db: Session = Depends(get_db)):
+    """The project and the per-purpose conversations inside it."""
+    from app.services import browser_chatgpt, chat_threads
+
+    uid = _uid(user)
+    row = pipeline.get_settings_row(db, uid)
+    data = chat_threads.overview(db, uid, row.chatgpt_project_url or "")
+    return {
+        **data,
+        "project_name": row.chatgpt_project_name or chat_threads.PROJECT_NAME,
+        "connected": browser_chatgpt.connected(uid),
+    }
+
+
+@router.post("/chatgpt/project")
+def create_chatgpt_project(user: CurrentUser = None, db: Session = Depends(get_db)):
+    """Create the "JobPilot" project in the connected ChatGPT account."""
+    from app.services import browser_chatgpt, chat_threads
+
+    uid = _uid(user)
+    if not browser_chatgpt.connected(uid):
+        raise HTTPException(status_code=409, detail="Connect ChatGPT first.")
+    row = pipeline.get_settings_row(db, uid)
+    name = row.chatgpt_project_name or chat_threads.PROJECT_NAME
+    result = browser_chatgpt.ensure_project(uid, name=name)
+    if not result.get("ok"):
+        raise HTTPException(
+            status_code=422,
+            detail=str(result.get("error") or "Could not create the ChatGPT project")[:400],
+        )
+    data = chat_threads.overview(db, uid, result.get("url") or "")
+    return {
+        **data,
+        "project_name": name,
+        "connected": True,
+        "created": bool(result.get("created")),
     }
 
 
@@ -170,21 +212,40 @@ def chatgpt_connect(user: CurrentUser = None, db: Session = Depends(get_db)):
     row = pipeline.get_settings_row(db, _uid(user))
     row.chatgpt_browser_enabled = True
     db.commit()
-    return {"connected": True, "enabled": True}
+
+    # Set up the project that keeps every agent conversation in one place. A
+    # failed project is not a failed login: the agent still works, and Settings
+    # offers to create it again with the real error.
+    from app.services import chat_threads
+
+    project = browser_chatgpt.ensure_project(
+        _uid(user), name=row.chatgpt_project_name or chat_threads.PROJECT_NAME
+    )
+    return {
+        "connected": True,
+        "enabled": True,
+        "project_url": project.get("url") or "",
+        "project_error": "" if project.get("ok") else str(project.get("error") or "")[:300],
+    }
 
 
 @router.post("/chatgpt/disconnect")
 def chatgpt_disconnect(user: CurrentUser = None, db: Session = Depends(get_db)):
-    from app.services import browser_chatgpt
+    from app.services import browser_chatgpt, chat_threads
 
-    marker = browser_chatgpt.marker_path(_uid(user))
+    uid = _uid(user)
+    marker = browser_chatgpt.marker_path(uid)
     try:
         marker.unlink(missing_ok=True)
     except OSError:
         pass
-    row = pipeline.get_settings_row(db, _uid(user))
+    row = pipeline.get_settings_row(db, uid)
     row.chatgpt_browser_enabled = False
+    row.chatgpt_project_url = ""
     db.commit()
+    # Conversations belong to the account that was signed in; never reuse them
+    # after a different account connects.
+    chat_threads.reset(db, uid)
     return {"connected": False, "enabled": False}
 
 

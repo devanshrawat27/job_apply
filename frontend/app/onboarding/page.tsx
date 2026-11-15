@@ -199,7 +199,7 @@ export default function OnboardingPage() {
         <Logo href="/onboarding" />
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="hidden sm:inline-flex">
-            4 quick steps
+            5 quick steps
           </Badge>
           <ThemeToggle />
         </div>
@@ -213,7 +213,7 @@ export default function OnboardingPage() {
             Step {step + 1} of {STEPS.length}
           </span>
         </div>
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-5 gap-2">
           {STEPS.map((item, index) => {
             const Icon = item.icon
             return (
@@ -416,25 +416,9 @@ export default function OnboardingPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Minimum salary (optional)">
-                <Input
-                  value={profile.min_salary}
-                  onChange={(e) => patchProfile({ min_salary: e.target.value })}
-                  placeholder="e.g. 12 LPA"
-                />
-              </Field>
-            </div>
-
             <div className="rounded-xl border border-border bg-muted/20 p-3 text-[11px] text-muted-foreground">
               The agent learns search keywords on its own: it tries new ones in the
               background, keeps the ones that bring relevant posts, and drops the rest.
-              Location is never used as a filter.
-            </div>
-
-            <div className="rounded-xl border border-border bg-muted/20 p-3 text-[11px] text-muted-foreground">
-              Location is not used as a filter. The agent only compares it when a post
-              explicitly demands on-site work somewhere else.
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">

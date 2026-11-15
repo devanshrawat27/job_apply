@@ -274,7 +274,7 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
 
     settings_row = pipeline.get_settings_row(db, uid)
     providers = pipeline.llm_providers(db, uid)
-    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(uid)
 
     examples_stmt = select(DraftExample).order_by(DraftExample.id.desc()).limit(3)
     if uid is not None:
@@ -329,7 +329,7 @@ def ai_filter(payload: AIFilterIn, user: CurrentUser = None, db: Session = Depen
 
     settings_row = pipeline.get_settings_row(db, uid)
     providers = pipeline.llm_providers(db, uid)
-    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected()
+    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(uid)
     if not (providers or settings.llm_enabled or use_browser):
         raise HTTPException(status_code=400, detail="No AI is configured for this workspace")
 

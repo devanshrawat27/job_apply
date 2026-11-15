@@ -188,7 +188,7 @@ def review(
         from app.services import browser_chatgpt
 
         try:
-            data = browser_chatgpt.ask_json(SYSTEM, prompt, user_id=user_id)
+            data = browser_chatgpt.ask_json(SYSTEM, prompt, user_id=user_id, purpose="watch")
         except Exception as exc:  # noqa: BLE001 - fall back to the API
             logger.warning("browser watcher report failed: %s", exc)
 

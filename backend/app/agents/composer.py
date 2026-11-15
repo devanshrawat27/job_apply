@@ -304,7 +304,8 @@ def compose(
 
                     logger.info("composer: API LLM unavailable (%s), using browser ChatGPT", exc)
                     data = browser_chatgpt.ask_json(
-                        SYSTEM, user_prompt, user_id=browser_user_id, timeout=110
+                        SYSTEM, user_prompt, user_id=browser_user_id,
+                        purpose="draft", timeout=150,
                     )
                 except Exception as browser_exc:  # noqa: BLE001
                     logger.warning("composer browser ChatGPT failed: %s", browser_exc)
