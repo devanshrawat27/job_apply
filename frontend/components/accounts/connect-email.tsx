@@ -64,12 +64,15 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
         from_address: form.from_address.trim(),
         starttls: form.starttls,
       })
-      await load()
-      onSaved?.()
       const check = await api.testEmailAccount()
       if (check.ok) {
+        await load()
+        onSaved?.()
         toast.success('Email connected')
       } else {
+        // Do not show a false "connected" state. Remove the unverified row.
+        await api.deleteEmailAccount().catch(() => null)
+        await load()
         toast.error(check.error || 'Gmail rejected the login')
       }
     } catch (err) {

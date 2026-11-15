@@ -873,7 +873,14 @@ def _send_one(
             return {"deferred": "post mentions email but no address was found"}
         email_cfg = email_accounts.config(db, job.user_id)
         if not mailer.email_configured(email_cfg):
-            return {"deferred": "email is not connected - connect it in Settings -> Email applications"}
+            # Keep the job visible instead of spinning in the send queue.
+            job.status = "pending_approval"
+            job.decision_reason = (
+                "Email is not verified - connect it in Settings, then send again"
+            )
+            _log(job, "email not verified - moved back to Approvals")
+            db.commit()
+            return {}
         if job.email_status not in ("none", "pending"):
             return {}
 
@@ -912,6 +919,19 @@ def _send_one(
             job.status = "queued"
             return {"stop": stop, "job_status": "queued"}
         if job.email_status in ("failed", "unknown"):
+            code = result.get("code", "ERROR")
+            if code in ("EMAIL_AUTH", "EMAIL_NOT_CONFIGURED", "INVALID_EMAIL"):
+                # The address/password is wrong (or missing). Do not burn the
+                # job: send it back to Approvals with the reason.
+                job.status = "pending_approval"
+                job.email_status = "none"
+                job.decision_reason = (
+                    "Email login failed - fix the App Password in Settings, then send again"
+                )
+                job.last_error = result.get("error") or code
+                _log(job, f"email not sent: {job.last_error}")
+                db.commit()
+                return {}
             job.status = "failed"
             job.last_error = result.get("error") or result.get("code", "ERROR")
             return {}

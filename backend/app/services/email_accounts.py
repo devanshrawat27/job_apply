@@ -33,7 +33,7 @@ def get(db: Session, user_id: int | None) -> EmailAccount | None:
 def config(db: Session, user_id: int | None) -> dict | None:
     """SMTP settings for this workspace, or None when not connected."""
     row = get(db, user_id)
-    if row is None or not row.enabled:
+    if row is None or not row.enabled or not row.verified:
         return None
     creds = decrypt_credentials(row.password_ciphertext) or {}
     password = str(creds.get("password") or "").replace(" ", "").strip()
@@ -74,6 +74,7 @@ def save(
     row.from_address = (from_address or username).strip()[:200]
     row.starttls = bool(starttls)
     row.enabled = True
+    row.verified = False
     row.password_ciphertext = encrypt_credentials(
         {"password": password.replace(" ", "").strip()}
     )
@@ -91,6 +92,14 @@ def delete(db: Session, user_id: int | None) -> bool:
     return True
 
 
+def mark_verified(db: Session, user_id: int | None, value: bool) -> None:
+    row = get(db, user_id)
+    if row is None:
+        return
+    row.verified = bool(value)
+    db.commit()
+
+
 def public(db: Session, user_id: int | None) -> dict:
     row = get(db, user_id)
     if row is None:
@@ -104,8 +113,9 @@ def public(db: Session, user_id: int | None) -> dict:
             "starttls": bool(settings.smtp_starttls),
         }
     return {
-        "configured": True,
+        "configured": bool(row.verified),
         "source": "workspace",
+        "verified": bool(row.verified),
         "host": row.host,
         "port": int(row.port or 587),
         "username": row.username,
@@ -151,7 +161,17 @@ def test_connection(cfg: dict, timeout: int = 20) -> dict:
                     "error": "Gmail rejected the login. Use the 16-character App Password.",
                 }
             except (smtplib.SMTPException, OSError) as retry_exc:
+                if isinstance(retry_exc, smtplib.SMTPServerDisconnected):
+                    return {
+                        "ok": False,
+                        "error": "Gmail closed the connection. That usually means the App Password is wrong — create a new one and try again.",
+                    }
                 return {"ok": False, "error": f"connection failed: {retry_exc}"}
+        if isinstance(exc, smtplib.SMTPServerDisconnected):
+            return {
+                "ok": False,
+                "error": "Gmail closed the connection. That usually means the App Password is wrong — create a new one and try again.",
+            }
         return {"ok": False, "error": f"connection failed: {exc}"}
     except smtplib.SMTPException as exc:
         return {"ok": False, "error": f"connection failed: {exc}"}

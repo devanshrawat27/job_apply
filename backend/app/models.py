@@ -348,6 +348,7 @@ class EmailAccount(Base):
     from_address: Mapped[str] = mapped_column(String(200), default="")
     starttls: Mapped[bool] = mapped_column(Boolean, default=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    verified: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.deps import CurrentUser
 from app.schemas import SettingsIn, SettingsOut
+from app.security import decrypt_credentials
 from app.services import email_accounts, executor, limits, pipeline, scheduler
 
 router = APIRouter(prefix="/settings", tags=["settings"])
@@ -87,8 +88,10 @@ def test_email(
     user: CurrentUser = None,
     db: Session = Depends(get_db),
 ) -> dict:
-    cfg = email_accounts.config(db, _uid(user))
-    if payload is not None and payload.host and payload.username and payload.password:
+    uid = _uid(user)
+    cfg = email_accounts.config(db, uid)
+    provided = payload is not None and bool(payload.host and payload.username and payload.password)
+    if provided:
         cfg = {
             "host": payload.host,
             "port": payload.port,
@@ -97,8 +100,22 @@ def test_email(
             "starttls": payload.starttls,
         }
     if cfg is None:
-        raise HTTPException(status_code=400, detail="Connect an email address first")
-    return email_accounts.test_connection(cfg)
+        # The saved row may not be verified yet; test it directly.
+        row = email_accounts.get(db, uid)
+        if row is None:
+            raise HTTPException(status_code=400, detail="Connect an email address first")
+        creds = decrypt_credentials(row.password_ciphertext) or {}
+        cfg = {
+            "host": row.host,
+            "port": row.port,
+            "username": row.username,
+            "password": creds.get("password", ""),
+            "starttls": row.starttls,
+        }
+    result = email_accounts.test_connection(cfg)
+    if not provided:
+        email_accounts.mark_verified(db, uid, bool(result.get("ok")))
+    return result
 
 
 @router.delete("/email")

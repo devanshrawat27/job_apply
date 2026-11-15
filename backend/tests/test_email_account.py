@@ -30,17 +30,20 @@ def test_save_and_read_email_config():
     )
 
     cfg = email_accounts.config(db, None)
+    assert cfg is None  # saved but not verified yet
+
+    public = email_accounts.public(db, None)
+    assert public["configured"] is False
+    assert "password" not in public
+
+    email_accounts.mark_verified(db, None, True)
+    cfg = email_accounts.config(db, None)
     assert cfg is not None
     assert cfg["host"] == "smtp.gmail.com"
     assert cfg["username"] == "candidate@example.com"
     assert cfg["password"] == "app-password-123"
-
-    public = email_accounts.public(db, None)
-    assert public["configured"] is True
-    assert public["source"] == "workspace"
-    assert "password" not in public
-
     assert mailer.email_configured(cfg) is True
+    assert email_accounts.public(db, None)["configured"] is True
     db.close()
 
 
@@ -55,6 +58,8 @@ def test_delete_email_account():
         password="secret",
         starttls=False,
     )
+    assert email_accounts.config(db, None) is None
+    email_accounts.mark_verified(db, None, True)
     assert email_accounts.config(db, None) is not None
     assert email_accounts.delete(db, None) is True
     assert email_accounts.config(db, None) is None
