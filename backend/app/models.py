@@ -142,7 +142,7 @@ class AgentSettings(Base):
 
     daily_reply_cap: Mapped[int] = mapped_column(Integer, default=8)
     daily_dm_cap: Mapped[int] = mapped_column(Integer, default=8)
-    min_minutes_between_writes: Mapped[int] = mapped_column(Integer, default=12)
+    min_minutes_between_writes: Mapped[int] = mapped_column(Integer, default=5)
     quiet_hours: Mapped[str] = mapped_column(String(40), default="23-7")
 
     use_public_reply: Mapped[bool] = mapped_column(Boolean, default=True)
