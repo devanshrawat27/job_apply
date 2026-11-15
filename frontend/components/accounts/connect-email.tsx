@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { CheckCircle2Icon, Loader2Icon, MailIcon, PencilIcon, Trash2Icon } from 'lucide-react'
+import { CheckCircle2Icon, EyeIcon, EyeOffIcon, Loader2Icon, MailIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,7 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState<'save' | 'delete' | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
   const [form, setForm] = useState({ ...EMPTY })
 
   async function load() {
@@ -143,13 +144,24 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
 
       <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
         App password
-        <Input
-          type="password"
-          autoComplete="off"
-          value={form.password}
-          onChange={(e) => setForm({ ...form, password: e.target.value })}
-          placeholder="16-character app password"
-        />
+        <div className="relative">
+          <Input
+            type={showPassword ? 'text' : 'password'}
+            autoComplete="off"
+            value={form.password}
+            onChange={(e) => setForm({ ...form, password: e.target.value })}
+            placeholder="16-character app password"
+            className="pr-9"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((value) => !value)}
+            aria-label={showPassword ? 'Hide app password' : 'Show app password'}
+            className="absolute inset-y-0 right-0 grid w-9 place-items-center text-muted-foreground hover:text-foreground"
+          >
+            {showPassword ? <EyeOffIcon className="size-4" /> : <EyeIcon className="size-4" />}
+          </button>
+        </div>
       </label>
 
       <details className="rounded-lg border border-border px-3 py-2">
