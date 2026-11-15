@@ -55,6 +55,14 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
       toast.error('Enter your email address and app password')
       return
     }
+    const cleanPassword = form.password.replace(/\s/g, '')
+    const isGmail = form.username.trim().toLowerCase().endsWith('@gmail.com')
+    if (isGmail && (form.password.includes('@') || cleanPassword.length !== 16)) {
+      toast.error(
+        'That looks like your normal Gmail password. Use the 16-character App Password (abcd efgh ijkl mnop).',
+      )
+      return
+    }
     setBusy('save')
     try {
       await api.saveEmailAccount({
@@ -143,14 +151,14 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
       </label>
 
       <label className="flex flex-col gap-1.5 text-xs text-muted-foreground">
-        App password
+        Gmail App Password
         <div className="relative">
           <Input
             type={showPassword ? 'text' : 'password'}
             autoComplete="off"
             value={form.password}
             onChange={(e) => setForm({ ...form, password: e.target.value })}
-            placeholder="16-character app password"
+            placeholder="abcd efgh ijkl mnop"
             className="pr-9"
           />
           <button
@@ -163,6 +171,19 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
           </button>
         </div>
       </label>
+
+      <p className="text-[11px] text-muted-foreground">
+        This is not your Gmail login password. Generate a 16-character App Password at{' '}
+        <a
+          href="https://myaccount.google.com/apppasswords"
+          target="_blank"
+          rel="noreferrer"
+          className="underline underline-offset-2 hover:text-foreground"
+        >
+          myaccount.google.com/apppasswords
+        </a>{' '}
+        (2-Step Verification must be on).
+      </p>
 
       <details className="rounded-lg border border-border px-3 py-2">
         <summary className="cursor-pointer text-[11px] text-muted-foreground">
