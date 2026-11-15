@@ -116,7 +116,7 @@ export function JobCard({
           <p className="text-xs leading-relaxed text-amber-800 dark:text-amber-200">
             <span className="font-medium">Why this needs you: </span>
             {job.uncertainties?.length
-              ? job.uncertainties.slice(0, 2).join(' · ')
+              ? job.uncertainties.slice(0, 2).join(' Â· ')
               : job.decision_reason && !/^confidence \d/i.test(job.decision_reason)
                 ? job.decision_reason
                 : 'The agent was not sure enough to send this on its own.'}
@@ -135,14 +135,14 @@ export function JobCard({
               <span className="text-sm font-medium">{job.author_name || job.author_handle}</span>
               <span className="text-xs text-muted-foreground">@{job.author_handle}</span>
               <span className="text-xs text-muted-foreground">
-                · {timeAgo(job.posted_at || job.discovered_at)}
+                Â· {timeAgo(job.posted_at || job.discovered_at)}
               </span>
             </div>
 
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               {job.company ? <span className="font-medium text-foreground">{job.company}</span> : null}
               {job.role ? <span>{job.role}</span> : null}
-              {job.job_location ? <span>· {job.job_location}</span> : null}
+              {job.job_location ? <span>Â· {job.job_location}</span> : null}
               <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px]">
                 <MethodIcon className="size-3" />
                 {method.label}
@@ -262,18 +262,20 @@ export function JobCard({
         {job.outreach_method === 'email' && job.contact_email ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
             <div className="min-w-0">
-              <p className="text-[11px] font-medium text-muted-foreground">Email application</p>
-              <a href={`mailto:${job.contact_email}`} className="block truncate text-xs hover:underline">
-                {job.contact_email}
-              </a>
+              <p className="text-[11px] font-medium text-muted-foreground">Application email</p>
+              <p className="truncate text-xs">{job.contact_email}</p>
             </div>
-            <a
-              href={`mailto:${job.contact_email}`}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-background px-3 text-sm font-medium hover:bg-muted"
-            >
-              <MailIcon className="size-3.5" />
-              Email them
-            </a>
+            {review && canAct ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={busy !== null}
+                onClick={() => run('send', () => api.sendNow(job.id), 'Sending email...')}
+              >
+                {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon className="size-3.5" />}
+                Email them
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
@@ -296,7 +298,7 @@ export function JobCard({
             {job.dm_text ? (
               <div className="rounded-lg border border-border border-l-2 border-l-sky-500/70 bg-muted/30 px-3 py-2">
                 <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  dm to @{job.author_handle}
+                  {job.outreach_method === 'email' ? 'email body' : `dm to @${job.author_handle}`}
                 </p>
                 {review && editing ? (
                   <Textarea value={dm} onChange={(e) => setDm(e.target.value)} className="text-sm" />
@@ -314,7 +316,7 @@ export function JobCard({
             <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
             <span>
               looks like a fake post ({job.spam_score}/100)
-              {job.spam_reasons?.length ? ` — ${job.spam_reasons.join(' · ')}` : ''}
+              {job.spam_reasons?.length ? ` â€” ${job.spam_reasons.join(' Â· ')}` : ''}
             </span>
           </p>
         ) : null}
@@ -322,7 +324,7 @@ export function JobCard({
         {job.generic_draft ? (
           <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-400">
             <AlertTriangleIcon className="mt-0.5 size-3.5 shrink-0" />
-            <span>the draft reads generic — edit it so it references this post</span>
+            <span>the draft reads generic â€” edit it so it references this post</span>
           </p>
         ) : null}
 
@@ -398,7 +400,7 @@ export function JobCard({
                           reply_text: editing ? reply : undefined,
                           dm_text: editing ? dm : undefined,
                         }),
-                      'Approved — sending now (or right after the cool-down)',
+                      'Approved â€” sending now (or right after the cool-down)',
                     )
                   }
                 >
@@ -433,6 +435,15 @@ export function JobCard({
                 Reject
               </Button>
               <Button
+                size="sm"
+                disabled={busy !== null}
+                onClick={() => run('send', () => api.sendNow(job.id), 'Sending email...')}
+              >
+                {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon />}
+                Send email
+              </Button>
+              <Button
+                variant="ghost"
                 size="sm"
                 disabled={busy !== null}
                 onClick={() => run('applied', () => api.markApplied(job.id), 'Marked as applied')}
@@ -501,7 +512,7 @@ export function JobCard({
                 onClick={() => {
                   void navigator.clipboard
                     ?.writeText(job.dm_text)
-                    .then(() => toast.success('DM copied — paste it in X'))
+                    .then(() => toast.success('DM copied â€” paste it in X'))
                     .catch(() => toast.error('Could not copy'))
                 }}
               >
@@ -548,8 +559,8 @@ export function JobCard({
           <div className="mt-2 space-y-2">
             <p className="text-[11px] text-muted-foreground">
               <span className="font-medium">why scored {job.relevance}: </span>
-              {job.reason || '—'}
-              <span className="mx-1.5">·</span>
+              {job.reason || 'â€”'}
+              <span className="mx-1.5">Â·</span>
               confidence {Math.round(job.confidence * 100)}%
             </p>
             {job.logs?.length ? (

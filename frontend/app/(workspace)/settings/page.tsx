@@ -771,10 +771,6 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            Connect the address the agent should send applications from. Posts that ask for
-            an email will wait in Approvals until this is set.
-          </p>
           <ConnectEmail
             onSaved={() => {
               setEmailReady(true)

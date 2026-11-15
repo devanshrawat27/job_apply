@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react'
 import { CheckCircle2Icon, Loader2Icon, MailIcon, PencilIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
@@ -233,9 +232,9 @@ export function ConnectEmail({ onSaved }: { onSaved?: () => void }) {
             Cancel
           </Button>
         ) : null}
-        <Badge variant="outline">
-          Gmail needs an App Password, not your normal password
-        </Badge>
+        <span className="text-[11px] text-muted-foreground">
+          Gmail: use an App Password, not your normal password.
+        </span>
       </div>
     </div>
   )
