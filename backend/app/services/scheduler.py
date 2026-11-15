@@ -38,6 +38,9 @@ IDLE_FEED_SCROLLS = 14
 # Check the X inbox for answers this often. Read-only.
 INBOX_MINUTES = 20
 
+# Run the AI fit screen for unreviewed Approvals at most this often.
+FIT_SCREEN_MINUTES = 10
+
 # Scanning pauses when the queue is this deep; sending cannot keep up with it.
 MAX_QUEUE_BEFORE_PAUSE = 40
 
@@ -56,6 +59,7 @@ class AgentLoop(threading.Thread):
         self._last_scan: dict[int | None, datetime] = {}
         self._last_idle_feed: dict[int | None, datetime] = {}
         self._last_inbox: dict[int | None, datetime] = {}
+        self._last_fit: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -179,6 +183,27 @@ class AgentLoop(threading.Thread):
                     send_run = pipeline.send_batch(db, limit=1, user_id=user_id)
                     logger.info("user %s idle send: %s %s", user_id, send_run.status, send_run.stats)
 
+        # 2b. Keep Approvals clean. Run the AI fit screen for unreviewed pending
+        # jobs on a short timer, so jobs found by the idle feed are covered too.
+        last_fit = self._last_fit.get(user_id)
+        fit_due = last_fit is None or now - last_fit >= timedelta(minutes=FIT_SCREEN_MINUTES)
+        if fit_due:
+            try:
+                from app.agents import job_filter
+
+                if job_filter.remaining(db, user_id, "pending") > 0:
+                    providers = pipeline.llm_providers(db, user_id)
+                    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
+                    if providers or settings.llm_enabled or use_browser:
+                        self._last_fit[user_id] = now
+                        fit_result = job_filter.review_batch(
+                            db, user_id, "pending", limit=10, providers=providers, browser=use_browser
+                        )
+                        logger.info("user %s auto fit screen: %s", user_id, fit_result)
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("fit screen failed for user %s", user_id, exc_info=True)
+                db.rollback()
+
         # 3. Scanning runs on its own schedule and is never starved by the queue.
         interval = max(1, settings_row.scan_interval_minutes)
         last = self._last_scan.get(user_id)
@@ -203,21 +228,6 @@ class AgentLoop(threading.Thread):
             if state.allowed:
                 send_run = pipeline.send_batch(db, limit=1, user_id=user_id)
                 logger.info("user %s send pass: %s %s", user_id, send_run.status, send_run.stats)
-
-        # 4b. Clear obvious mismatches from Approvals with the AI fit screen.
-        try:
-            from app.agents import job_filter
-
-            providers = pipeline.llm_providers(db, user_id)
-            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
-            if providers or settings.llm_enabled or use_browser:
-                fit_result = job_filter.review_batch(
-                    db, user_id, "pending", limit=10, providers=providers, browser=use_browser
-                )
-                logger.info("user %s auto fit screen: %s", user_id, fit_result)
-        except Exception:  # noqa: BLE001 - never break the loop
-            logger.warning("fit screen failed for user %s", user_id, exc_info=True)
-            db.rollback()
 
         # 4. Every few hours let the analyst (ChatGPT when configured) grade the
         # keywords and suggest better junior-friendly ones. It only stores
@@ -307,3 +317,4 @@ def trigger_now() -> None:
     if _loop is not None:
         _loop._last_scan.clear()  # noqa: SLF001 - internal timer reset
         _loop._last_idle_feed.clear()  # noqa: SLF001
+        _loop._last_fit.clear()  # noqa: SLF001

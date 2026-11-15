@@ -347,6 +347,8 @@ _NON_TECH_SIGNALS = (
     "receptionist", "telemarketing", "telesales", "bank teller", "bookkeeping",
     "accountant", "insurance", "banking", "retail", "warehouse", "tutor",
     "teacher", "nurse", "security guard", "civil engineer", "mechanical engineer",
+    "video editor", "video editing", "shorts editor", "motion designer",
+    "content creator", "thumbnail designer", "voiceover", "voice over",
 )
 
 # Unambiguous non-tech role titles. These reject even when the post also
@@ -371,14 +373,25 @@ _STRONG_TECH_SIGNALS = (
 )
 
 
+def _has_signal(text: str, signal: str) -> bool:
+    """Word-boundary match for short words, substring for phrases.
+
+    Without this, "reaction" contains "react" and a video-editing post looks
+    like a React job.
+    """
+    if len(signal) <= 5 and signal.isalpha():
+        return re.search(rf"\b{re.escape(signal)}\b", text) is not None
+    return signal in text
+
+
 def domain_mismatch(profile: Profile, text: str) -> str | None:
     """Stop a tech resume from getting non-tech posts, and vice versa."""
     domain = profile.domain or "tech"
     lowered = (text or "").lower()
-    looks_tech = any(signal in lowered for signal in _TECH_SIGNALS)
-    looks_strong_tech = any(signal in lowered for signal in _STRONG_TECH_SIGNALS)
-    looks_non_tech = any(signal in lowered for signal in _NON_TECH_SIGNALS)
-    clear_non_tech = any(signal in lowered for signal in _CLEAR_NON_TECH_ROLES)
+    looks_tech = any(_has_signal(lowered, signal) for signal in _TECH_SIGNALS)
+    looks_strong_tech = any(_has_signal(lowered, signal) for signal in _STRONG_TECH_SIGNALS)
+    looks_non_tech = any(_has_signal(lowered, signal) for signal in _NON_TECH_SIGNALS)
+    clear_non_tech = any(_has_signal(lowered, signal) for signal in _CLEAR_NON_TECH_ROLES)
     strict = bool(getattr(profile, "strict_fit", True))
 
     if domain == "tech":
@@ -626,18 +639,33 @@ def looks_like_job_post(text: str) -> bool:
         return False
     if job_seeker_reason(text):
         return False
-    signals = (
-        "hiring",
-        "opening",
-        "looking for",
-        "join our",
-        "role",
-        "position",
-        "vacancy",
-        "opportunity",
-        "apply",
+
+    hiring_phrases = (
+        "we are hiring", "we're hiring", "now hiring", "is hiring", "hiring:",
+        "hiring for", "job opening", "open role", "open position", "vacancy",
+        "join our team", "looking for a", "looking for an", "dm me", "send your resume",
+        "send your cv", "drop your resume", "apply now", "apply here", "apply at",
+        "apply:", "apply link", "email us", "hiring",
     )
-    return any(signal in lowered for signal in signals)
+    role_words = (
+        "developer", "engineer", "intern", "designer", "analyst", "manager",
+        "consultant", "specialist", "architect", "scientist", "administrator",
+        "executive", "associate", "trainee", "recruiter", "editor",
+    )
+    apply_words = (
+        "apply", "dm me", "dm ", "send your", "resume", "cv", "email us", "comment",
+        "link in bio", "reach out", "whatsapp", "telegram",
+    )
+
+    has_hiring = any(phrase in lowered for phrase in hiring_phrases)
+    has_role = any(word in lowered for word in role_words)
+    has_apply = any(word in lowered for word in apply_words)
+
+    # Commentary about hiring is not a hiring post. Require an actual hiring
+    # phrase plus a role or a clear application instruction.
+    if not has_hiring:
+        return False
+    return has_role or has_apply
 
 
 def is_own_post(author_handle: str, own_username: str) -> bool:
