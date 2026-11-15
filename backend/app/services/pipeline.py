@@ -28,7 +28,7 @@ from app.models import (
     XAccount,
 )
 from app.security import decrypt_credentials
-from app.services import accounts, browser_chatgpt, executor, limits, mailer, resume_pick
+from app.services import accounts, browser_chatgpt, email_accounts, executor, limits, mailer, resume_pick
 
 logger = logging.getLogger(__name__)
 
@@ -449,7 +449,12 @@ def scan(
                 _log(job, dm_reason)
             elif dm_count > 0:
                 _log(job, f"follow-up DM #{dm_count + 1} to @{job.author_handle} (no reply yet)")
-            job.status, why = _decide(job, settings_row, blockers)
+            job.status, why = _decide(
+                job,
+                settings_row,
+                blockers,
+                email_ready=email_accounts.configured(db, user_id),
+            )
             job.decision_reason = why
             _log(job, why)
             if job.status == "queued":
@@ -529,17 +534,23 @@ STRONG_MATCH_RELEVANCE = 90
 STRONG_MATCH_CONFIDENCE = 0.55
 
 
-def _decide(job: JobPost, settings_row: AgentSettings, blockers: list[str]) -> tuple[str, str]:
+def _decide(
+    job: JobPost,
+    settings_row: AgentSettings,
+    blockers: list[str],
+    *,
+    email_ready: bool = True,
+) -> tuple[str, str]:
     """Auto-send only when the agent is genuinely sure.
 
     A very strong role match is allowed to go out slightly below the confidence
     bar as long as the draft is clean - that is the "skills matched, just apply"
     case.
     """
-    if job.outreach_method == "email" and not mailer.email_configured():
+    if job.outreach_method == "email" and not email_ready:
         return (
             "pending_approval",
-            f"apply by email to {job.contact_email or 'the address in the post'} (email is not configured)",
+            f"apply by email to {job.contact_email or 'the address in the post'} (email is not connected)",
         )
 
     if not settings_row.auto_send_enabled:
@@ -860,8 +871,9 @@ def _send_one(
     if method == "email":
         if not job.contact_email:
             return {"deferred": "post mentions email but no address was found"}
-        if not mailer.email_configured():
-            return {"deferred": "email is not configured - add SMTP_* to backend/.env"}
+        email_cfg = email_accounts.config(db, job.user_id)
+        if not mailer.email_configured(email_cfg):
+            return {"deferred": "email is not connected - connect it in Settings -> Email applications"}
         if job.email_status not in ("none", "pending"):
             return {}
 
@@ -885,6 +897,7 @@ def _send_one(
             subject,
             body,
             resume_path=attachment,
+            config=email_cfg,
         )
         stop = ""
         job.email_status, stop = _apply_write_result(

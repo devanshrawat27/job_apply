@@ -222,8 +222,7 @@ export interface TokenPair {
   token_type: string
 }
 
-export interface LLMKey {
-  id: number
+export interface LLMKey {  id: number
   label: string
   provider: string
   masked: string
@@ -264,4 +263,14 @@ export interface WatcherReport {
     }
   }
   created_at: string | null
+}
+
+export interface EmailAccount {
+  configured: boolean
+  source: 'workspace' | 'env' | 'none'
+  host: string
+  port: number
+  username: string
+  from_address: string
+  starttls: boolean
 }

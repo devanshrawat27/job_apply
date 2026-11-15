@@ -28,7 +28,9 @@ _MIME = {
 }
 
 
-def email_configured() -> bool:
+def email_configured(config: dict | None = None) -> bool:
+    if config:
+        return bool(config.get("host") and config.get("username") and config.get("password"))
     return settings.email_configured
 
 
@@ -39,6 +41,7 @@ def send_application(
     *,
     resume_path: str = "",
     reply_to: str = "",
+    config: dict | None = None,
     timeout: int = 30,
 ) -> dict:
     """Return {success, code, error}. Never raises for expected failures."""
@@ -46,15 +49,27 @@ def send_application(
     if not EMAIL_RE.match(target):
         return {"success": False, "code": "INVALID_EMAIL", "error": f"not a valid address: {target}"}
 
-    if not settings.email_configured:
+    cfg = config or (
+        {
+            "host": settings.smtp_host,
+            "port": settings.smtp_port,
+            "username": settings.smtp_user,
+            "password": settings.smtp_password,
+            "from_address": settings.smtp_from or settings.smtp_user,
+            "starttls": settings.smtp_starttls,
+        }
+        if settings.email_configured
+        else None
+    )
+    if not cfg:
         return {
             "success": False,
             "code": "EMAIL_NOT_CONFIGURED",
-            "error": "SMTP is not configured. Add SMTP_* values to backend/.env to send email applications.",
+            "error": "Email is not connected. Connect it in Settings -> Email applications.",
         }
 
     message = EmailMessage()
-    message["From"] = settings.smtp_from or settings.smtp_user or ""
+    message["From"] = cfg.get("from_address") or cfg.get("username") or ""
     message["To"] = target
     message["Subject"] = subject[:200]
     if reply_to:
@@ -68,24 +83,24 @@ def send_application(
         maintype, subtype = _MIME.get(suffix, "application/octet-stream").split("/", 1)
         message.add_attachment(raw, maintype=maintype, subtype=subtype, filename=filename)
 
-    host = settings.smtp_host or ""
-    port = int(settings.smtp_port or 587)
+    host = cfg.get("host") or ""
+    port = int(cfg.get("port") or 587)
 
     try:
-        if settings.smtp_starttls:
+        if cfg.get("starttls", True):
             with smtplib.SMTP(host, port, timeout=timeout) as server:
                 server.starttls(context=ssl.create_default_context())
-                server.login(settings.smtp_user or "", settings.smtp_password or "")
+                server.login(cfg.get("username") or "", cfg.get("password") or "")
                 server.send_message(message)
         else:
             with smtplib.SMTP_SSL(host, port, timeout=timeout) as server:
-                server.login(settings.smtp_user or "", settings.smtp_password or "")
+                server.login(cfg.get("username") or "", cfg.get("password") or "")
                 server.send_message(message)
     except smtplib.SMTPAuthenticationError:
         return {
             "success": False,
             "code": "EMAIL_AUTH",
-            "error": "SMTP rejected the login. Check SMTP_USER / SMTP_PASSWORD (use an app password).",
+            "error": "SMTP rejected the login. Check the address / app password in Settings.",
         }
     except (smtplib.SMTPException, OSError) as exc:
         logger.warning("email send failed: %s", exc)

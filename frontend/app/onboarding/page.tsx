@@ -10,11 +10,13 @@ import {
   SparklesIcon,
   UserRoundIcon,
   AtSignIcon,
+  MailIcon,
   TargetIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ConnectXForm } from '@/components/accounts/connect-x'
+import { ConnectEmail } from '@/components/accounts/connect-email'
 import { ChipInput, Field } from '@/components/profile/fields'
 import {
   JOB_TITLES,
@@ -40,6 +42,7 @@ const STEPS = [
   { label: 'Resume', icon: UserRoundIcon },
   { label: 'Job search', icon: TargetIcon },
   { label: 'Connect X', icon: AtSignIcon },
+  { label: 'Email', icon: MailIcon },
   { label: 'Review', icon: CheckCircle2Icon },
 ] as const
 
@@ -286,7 +289,7 @@ export default function OnboardingPage() {
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
               <span className="text-[11px] text-muted-foreground">
-                Step 1 of 4 · takes about 30 seconds
+                Step 1 of {STEPS.length} · takes about 30 seconds
               </span>
               <Button onClick={() => void saveProfile(1)} disabled={saving}>
                 {saving ? <Loader2Icon className="animate-spin" /> : null}
@@ -501,6 +504,40 @@ export default function OnboardingPage() {
       {step === 3 ? (
         <Card>
           <CardHeader>
+            <CardTitle>Connect your email (optional)</CardTitle>
+            <CardDescription>
+              Some hiring posts ask you to apply by email. Connect your own address so the
+              agent can send the application and your resume from it.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <ConnectEmail />
+            <p className="text-[11px] text-muted-foreground">
+              Gmail needs an App Password (Google Account → Security → App passwords). You can
+              skip this and connect later from Settings → Email applications.
+            </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+              <Button variant="ghost" onClick={() => setStep(2)}>
+                <ArrowLeftIcon />
+                Back
+              </Button>
+              <div className="flex items-center gap-2">
+                <Button variant="outline" onClick={() => setStep(4)}>
+                  Skip for now
+                </Button>
+                <Button onClick={() => setStep(4)}>
+                  Continue
+                  <ArrowRightIcon />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {step === 4 ? (
+        <Card>
+          <CardHeader>
             <CardTitle>Ready to go</CardTitle>
             <CardDescription>One last look before the agent starts.</CardDescription>
           </CardHeader>
@@ -549,7 +586,7 @@ export default function OnboardingPage() {
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
-              <Button variant="ghost" onClick={() => setStep(2)}>
+              <Button variant="ghost" onClick={() => setStep(3)}>
                 <ArrowLeftIcon />
                 Back
               </Button>

@@ -327,6 +327,30 @@ class SearchQuery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class EmailAccount(Base):
+    """Per-user SMTP credentials for sending application emails.
+
+    One row per workspace. The password is stored encrypted, never returned.
+    The global SMTP_* env values remain a fallback for the original install.
+    """
+
+    __tablename__ = "email_account"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_email_account_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    host: Mapped[str] = mapped_column(String(200), default="")
+    port: Mapped[int] = mapped_column(Integer, default=587)
+    username: Mapped[str] = mapped_column(String(200), default="")
+    password_ciphertext: Mapped[str] = mapped_column(Text, default="")
+    from_address: Mapped[str] = mapped_column(String(200), default="")
+    starttls: Mapped[bool] = mapped_column(Boolean, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 

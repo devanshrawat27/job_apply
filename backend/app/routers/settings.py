@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import CurrentUser
 from app.schemas import SettingsIn, SettingsOut
-from app.services import executor, limits, pipeline, scheduler
+from app.services import email_accounts, executor, limits, pipeline, scheduler
 
 router = APIRouter(prefix="/settings", tags=["settings"])
 
@@ -39,4 +40,67 @@ def agent_status(user: CurrentUser = None, db: Session = Depends(get_db)) -> dic
         "usage": limits.stats(db, row),
         "pending_approvals": pipeline.pending_count(db, uid),
         "executor": executor.executor_health(),
+        "email_configured": email_accounts.configured(db, uid),
     }
+
+
+class EmailIn(BaseModel):
+    host: str = Field(min_length=1, max_length=200)
+    port: int = Field(default=587, ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=200)
+    password: str = Field(min_length=1, max_length=400)
+    from_address: str = Field(default="", max_length=200)
+    starttls: bool = True
+
+
+class EmailTestIn(BaseModel):
+    host: str = ""
+    port: int = 587
+    username: str = ""
+    password: str = ""
+    starttls: bool = True
+
+
+@router.get("/email")
+def read_email(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
+    return email_accounts.public(db, _uid(user))
+
+
+@router.put("/email")
+def save_email(payload: EmailIn, user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
+    email_accounts.save(
+        db,
+        _uid(user),
+        host=payload.host,
+        port=payload.port,
+        username=payload.username,
+        password=payload.password,
+        from_address=payload.from_address,
+        starttls=payload.starttls,
+    )
+    return email_accounts.public(db, _uid(user))
+
+
+@router.post("/email/test")
+def test_email(
+    payload: EmailTestIn | None = None,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    cfg = email_accounts.config(db, _uid(user))
+    if payload is not None and payload.host and payload.username and payload.password:
+        cfg = {
+            "host": payload.host,
+            "port": payload.port,
+            "username": payload.username,
+            "password": payload.password,
+            "starttls": payload.starttls,
+        }
+    if cfg is None:
+        raise HTTPException(status_code=400, detail="Connect an email address first")
+    return email_accounts.test_connection(cfg)
+
+
+@router.delete("/email")
+def delete_email(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
+    return {"deleted": email_accounts.delete(db, _uid(user))}

@@ -3,6 +3,7 @@ import type {
   AgentSettings,
   AuthStatus,
   Dashboard,
+  EmailAccount,
   Health,
   Insight,
   Job,
@@ -245,6 +246,28 @@ export const api = {
   deleteLLMKey: (id: number) => mutate<{ ok: boolean }>(`/llm/keys/${id}`, { method: 'DELETE' }),
   testLLMKey: (id: number) =>
     mutate<{ ok: boolean; model: string }>(`/llm/keys/${id}/test`, { method: 'POST' }),
+  emailAccount: () => request<EmailAccount>('/settings/email'),
+  saveEmailAccount: (payload: {
+    host: string
+    port: number
+    username: string
+    password: string
+    from_address?: string
+    starttls?: boolean
+  }) => mutate<EmailAccount>('/settings/email', { method: 'PUT', body: JSON.stringify(payload) }),
+  testEmailAccount: (payload?: {
+    host: string
+    port: number
+    username: string
+    password: string
+    starttls?: boolean
+  }) =>
+    mutate<{ ok: boolean; error: string }>('/settings/email/test', {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
+    }),
+  deleteEmailAccount: () =>
+    mutate<{ deleted: boolean }>('/settings/email', { method: 'DELETE' }),
   insightLatest: () => request<{ insight: Insight | null }>('/llm/insights/latest'),
   refreshInsight: () =>
     mutate<{ insight: Insight }>('/llm/insights/refresh', { method: 'POST' }),

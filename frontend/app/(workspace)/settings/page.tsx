@@ -15,6 +15,7 @@ import {
 import { toast } from 'sonner'
 
 import { ConnectXForm } from '@/components/accounts/connect-x'
+import { ConnectEmail } from '@/components/accounts/connect-email'
 import { PageHeader } from '@/components/page-header'
 import { ChipInput, Field } from '@/components/profile/fields'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -770,37 +771,16 @@ export default function SettingsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <Badge variant={emailReady ? 'success' : 'warning'}>
-              {emailReady === null ? 'checking…' : emailReady ? 'configured' : 'not configured'}
-            </Badge>
-            {!emailReady ? (
-              <span className="text-[11px] text-muted-foreground">
-                Posts that need email will wait in Approvals.
-              </span>
-            ) : null}
-          </div>
-
-          <details className="rounded-xl border border-border px-3 py-2">
-            <summary className="cursor-pointer text-xs text-muted-foreground">
-              Advanced — SMTP setup
-            </summary>
-            <div className="flex flex-col gap-2 pt-2">
-              <pre className="overflow-x-auto rounded-lg border border-border bg-background p-3 font-mono text-[11px] text-muted-foreground">
-{`# backend/.env
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_STARTTLS=true
-SMTP_USER=you@gmail.com
-SMTP_PASSWORD=your-app-password
-SMTP_FROM=you@gmail.com`}
-              </pre>
-              <p className="text-[11px] text-muted-foreground">
-                Gmail uses an App Password (Google Account → Security → App passwords), not
-                your normal password. Restart the backend after changing .env.
-              </p>
-            </div>
-          </details>
+          <p className="text-xs text-muted-foreground">
+            Connect the address the agent should send applications from. Posts that ask for
+            an email will wait in Approvals until this is set.
+          </p>
+          <ConnectEmail
+            onSaved={() => {
+              setEmailReady(true)
+              void reload()
+            }}
+          />
         </CardContent>
       </Card>
 
