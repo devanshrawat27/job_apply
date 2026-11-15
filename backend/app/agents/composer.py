@@ -394,6 +394,40 @@ def _llm_ready() -> bool:
     return settings.llm_enabled
 
 
+def auto_reject_reason(uncertainties: list[str] | None) -> str:
+    """A clear reason from the model that means: do not show this to a human.
+
+    Commentary, resources, wrong-domain roles and roles the candidate cannot
+    qualify for should be rejected, not parked in Approvals.
+    """
+    text = " ".join(str(item) for item in (uncertainties or [])).lower()
+    markers = (
+        "not an actual job",
+        "not a job opening",
+        "not a hiring post",
+        "commentary",
+        "opinion piece",
+        "sharing a resource",
+        "no company, role",
+        "no specific hiring",
+        "rather than a direct job",
+        "not a direct job",
+        "mismatch in job function",
+        "not a software",
+        "non-tech role",
+        "quantitative finance",
+        "senior staff",
+        "requires senior",
+        "outside the candidate's",
+        "candidate's profile contains no",
+        "no documented",
+    )
+    for marker in markers:
+        if marker in text:
+            return marker
+    return ""
+
+
 def blockers_for(post: JobPost, result: dict) -> list[str]:
     """Extra reasons the pipeline must stop and ask a human."""
     blockers: list[str] = []

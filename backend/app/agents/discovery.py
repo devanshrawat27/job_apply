@@ -640,12 +640,20 @@ def looks_like_job_post(text: str) -> bool:
     if job_seeker_reason(text):
         return False
 
-    hiring_phrases = (
+    # Only a direct hiring intent counts. Commentary that merely contains the
+    # word "hiring" (e.g. "why are people still hiring developers?") is not a
+    # job post.
+    intent_phrases = (
         "we are hiring", "we're hiring", "now hiring", "is hiring", "hiring:",
-        "hiring for", "job opening", "open role", "open position", "vacancy",
-        "join our team", "looking for a", "looking for an", "dm me", "send your resume",
-        "send your cv", "drop your resume", "apply now", "apply here", "apply at",
-        "apply:", "apply link", "email us", "hiring",
+        "hiring alert", "urgent hiring", "hiring a ", "hiring an ", "hiring for",
+        "looking to hire", "we are looking for", "we're looking for",
+        "looking for a ", "looking for an ", "looking for developers",
+        "looking for engineers", "open role", "open position", "openings for",
+        "job opening", "job opportunity", "vacancy", "join our team",
+        "dm me your resume", "dm your resume", "send your resume", "send your cv",
+        "drop your resume", "email your resume", "apply at", "apply here",
+        "apply now", "apply:", "apply link", "apply with",
+        "reach out with your resume",
     )
     role_words = (
         "developer", "engineer", "intern", "designer", "analyst", "manager",
@@ -653,19 +661,28 @@ def looks_like_job_post(text: str) -> bool:
         "executive", "associate", "trainee", "recruiter", "editor",
     )
     apply_words = (
-        "apply", "dm me", "dm ", "send your", "resume", "cv", "email us", "comment",
-        "link in bio", "reach out", "whatsapp", "telegram",
+        "apply", "dm me", "dm your", "send your", "resume", "cv", "email us",
+        "comment", "link in bio", "reach out", "whatsapp", "telegram",
     )
 
-    has_hiring = any(phrase in lowered for phrase in hiring_phrases)
+    has_intent = any(phrase in lowered for phrase in intent_phrases)
     has_role = any(word in lowered for word in role_words)
     has_apply = any(word in lowered for word in apply_words)
 
-    # Commentary about hiring is not a hiring post. Require an actual hiring
-    # phrase plus a role or a clear application instruction.
-    if not has_hiring:
+    if not has_intent or not (has_role or has_apply):
         return False
-    return has_role or has_apply
+
+    # Explicit commentary / resource posts.
+    commentary = (
+        "why are people", "why do people", "why is everyone", "people still pay",
+        "people still spend", "hot take", "unpopular opinion", "thoughts?",
+        "what do you think", "commentary", "opinion piece", "sharing a resource",
+        "repos in order", "here's how", "thread:", "🧵", "announcement:",
+        "hiring test", "prompt engineering course",
+    )
+    if any(marker in lowered for marker in commentary) and not has_apply:
+        return False
+    return True
 
 
 def is_own_post(author_handle: str, own_username: str) -> bool:

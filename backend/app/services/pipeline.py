@@ -437,6 +437,17 @@ def scan(
             job.uncertainties = draft["uncertainties"]
             job.generic_draft = bool(draft.get("generic"))
 
+            veto = composer.auto_reject_reason(draft.get("uncertainties"))
+            if veto:
+                job.status = "rejected"
+                job.decision_reason = f"not a fit per the model ({veto}) - rejected"
+                job.reply_text = ""
+                job.dm_text = ""
+                job.confidence = 0.0
+                stats["rejected"] += 1
+                _log(job, job.decision_reason)
+                continue
+
             blockers = composer.blockers_for(job, draft)
             allowed, dm_count, dm_reason = dm_followup_allowed(db, job)
             if not allowed:
