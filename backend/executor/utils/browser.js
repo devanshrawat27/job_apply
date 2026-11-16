@@ -6,8 +6,6 @@ import { getBrowserProfileDir } from './paths.js'
 
 const LAUNCH_ARGS = [
   '--disable-blink-features=AutomationControlled',
-  '--disable-features=IsolateOrigins,site-per-process',
-  '--disable-site-isolation-trials',
   '--no-first-run',
   '--no-default-browser-check',
 ]
