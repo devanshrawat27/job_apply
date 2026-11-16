@@ -64,6 +64,9 @@ export async function launchBrowser({ withSession = true } = {}) {
   const baseOptions = {
     headless: config.headless,
     args: LAUNCH_ARGS,
+    // Playwright adds --enable-automation by default, which shows Chrome's
+    // "controlled by automated test software" bar. X treats that as a bot sign.
+    ignoreDefaultArgs: ['--enable-automation'],
     proxy: config.proxy,
     userAgent: USER_AGENT,
     locale: config.locale,

@@ -48,6 +48,7 @@ export async function launchChatgpt({ headless } = {}) {
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: headless ?? config.headless,
     args: LAUNCH_ARGS,
+    ignoreDefaultArgs: ['--enable-automation'],
     locale: config.locale,
     timezoneId: config.timezone,
     viewport: { width: 1280, height: 900 },
