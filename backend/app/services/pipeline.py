@@ -307,6 +307,10 @@ def scan(
             return run
 
         db.flush()
+        # Release the write lock before the model work below. Drafting opens its
+        # own short database session (ChatGPT thread bookkeeping), and SQLite
+        # would deadlock if this scan kept an open write transaction.
+        db.commit()
 
         scored = discovery.score_posts(profile, fresh_rows)
         examples_stmt = select(DraftExample).order_by(DraftExample.id.desc()).limit(3)

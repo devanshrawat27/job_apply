@@ -77,6 +77,24 @@ def _free_port() -> int:
         return int(sock.getsockname()[1])
 
 
+def _kill_tree(proc: subprocess.Popen) -> None:
+    """Kill a script and every browser it spawned."""
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=20,
+            )
+        else:
+            proc.kill()
+    except Exception:  # noqa: BLE001 - best effort
+        try:
+            proc.kill()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def stop_host() -> None:
     proc = _HOST.get("proc")
     if proc is not None and proc.poll() is None:
@@ -105,60 +123,14 @@ def profile_suffix(user_id: int | None) -> str:
 
 
 def ensure_host(creds: dict[str, str], suffix: str = "") -> str:
-    """Start (or reuse) the persistent browser. Returns '' when unavailable."""
-    key = f"{suffix}:{creds.get('auth_token', '')}:{creds.get('ct0', '')}"
-    with _HOST_LOCK:
-        proc = _HOST.get("proc")
-        if proc is not None and proc.poll() is None and _HOST.get("key") == key:
-            return str(_HOST.get("endpoint") or "")
+    """No CDP host: every script launches the persistent profile itself.
 
-        stop_host()
-
-        script = EXECUTOR_DIR / "scripts" / "agentHost.js"
-        if not script.exists():
-            return ""
-
-        port = _free_port()
-        env = os.environ.copy()
-        env["BROWSER_CDP_PORT"] = str(port)
-        env["JOBPILOT_PROFILE_SUFFIX"] = suffix
-        env["TWITTER_AUTH_TOKEN"] = creds.get("auth_token", "")
-        env["TWITTER_CT0"] = creds.get("ct0", "")
-        env["TWITTER_TWID"] = creds.get("twid", "")
-        if settings.automation_headless:
-            env["STEALTH_HEADLESS"] = "1"
-
-        try:
-            spawned = subprocess.Popen(
-                ["node", str(script)],
-                cwd=str(EXECUTOR_DIR),
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except OSError:
-            return ""
-
-        deadline = time.time() + 60
-        while time.time() < deadline:
-            if spawned.poll() is not None:
-                return ""
-            if _port_open(port):
-                _HOST.update(
-                    {"proc": spawned, "endpoint": f"http://127.0.0.1:{port}", "key": key}
-                )
-                return str(_HOST["endpoint"])
-            time.sleep(0.5)
-
-        try:
-            spawned.kill()
-        except Exception:  # noqa: BLE001
-            pass
-        return ""
+    The old host never exposed a debugging port, so each call waited 60s for a
+    port that never opened and then launched a browser anyway. ``run_script``
+    already serialises scripts, so one browser at a time is guaranteed and the
+    profile (cookies, IndexedDB) is still shared.
+    """
+    return ""
 
 
 class ExecutorUnavailable(RuntimeError):
@@ -245,17 +217,39 @@ def run_script(
 
     with SCRIPT_LOCK:
         try:
-            proc = subprocess.run(
+            proc = subprocess.Popen(
                 ["node", str(script), "--agent-mode"],
                 cwd=str(EXECUTOR_DIR),
                 env=env,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=limit,
                 encoding="utf-8",
                 errors="replace",
             )
+        except OSError as exc:
+            return {
+                "success": False,
+                "code": "ERROR",
+                "error": f"could not start {name}: {exc}",
+                "data": {"logs": []},
+            }
+
+        try:
+            stdout, stderr = proc.communicate(timeout=limit)
         except subprocess.TimeoutExpired:
+            # Kill the whole tree. A killed node process can leave a Chromium
+            # child holding the pipes, which would block communicate() forever
+            # and keep SCRIPT_LOCK locked for every later action.
+            _kill_tree(proc)
+            try:
+                proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                for stream in (proc.stdout, proc.stderr):
+                    try:
+                        stream.close()
+                    except Exception:  # noqa: BLE001
+                        pass
             return {
                 "success": False,
                 "code": "TIMEOUT",
@@ -263,11 +257,11 @@ def run_script(
                 "data": {"logs": []},
             }
 
-    payload = _parse_result(proc.stdout)
+    payload = _parse_result(stdout)
     if payload is None:
         # Surface the real reason (missing module, missing browser, crash)
         # instead of a useless "no RESULT_JSON" message.
-        tail = _tail(proc.stderr, 12) or _tail(proc.stdout, 12)
+        tail = _tail(stderr, 12) or _tail(stdout, 12)
         reason = " | ".join(line.strip() for line in tail[-6:] if line.strip())
         payload = {
             "success": False,
@@ -278,7 +272,7 @@ def run_script(
             ),
             "data": {"logs": tail},
         }
-    logs = (payload.get("data") or {}).get("logs") or _tail(proc.stdout)
+    logs = (payload.get("data") or {}).get("logs") or _tail(stdout)
     payload.setdefault("data", {})
     payload["data"]["logs"] = logs
     if proc.returncode != 0 and payload.get("success"):
