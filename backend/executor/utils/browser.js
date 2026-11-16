@@ -67,6 +67,9 @@ export async function launchBrowser({ withSession = true } = {}) {
     // Playwright adds --enable-automation by default, which shows Chrome's
     // "controlled by automated test software" bar. X treats that as a bot sign.
     ignoreDefaultArgs: ['--enable-automation'],
+    // Keep the Chromium sandbox: launching with --no-sandbox shows
+    // "unsupported command-line flag", another clear automation signal.
+    chromiumSandbox: true,
     proxy: config.proxy,
     userAgent: USER_AGENT,
     locale: config.locale,
@@ -74,11 +77,26 @@ export async function launchBrowser({ withSession = true } = {}) {
     viewport: { width: 1366, height: 850 },
     colorScheme: 'light',
   }
+  // With the installed Chrome, keep its real user agent: a hardcoded UA that
+  // disagrees with the client hints is an easy bot signal for Cloudflare.
+  if (!config.channel) baseOptions.userAgent = USER_AGENT
   if (config.channel) baseOptions.channel = config.channel
 
   try {
     fs.mkdirSync(profileDir, { recursive: true })
-    const context = await chromium.launchPersistentContext(profileDir, baseOptions)
+    let context
+    try {
+      context = await chromium.launchPersistentContext(profileDir, baseOptions)
+    } catch (err) {
+      // Installed Chrome is far less suspicious to X than bundled Chromium,
+      // but never fail the run if it is missing or already busy.
+      if (!baseOptions.channel) throw err
+      console.log(
+        `[browser.js] ${baseOptions.channel} launch failed (${err.message}); retrying with bundled Chromium`,
+      )
+      const { channel: _channel, ...rest } = baseOptions
+      context = await chromium.launchPersistentContext(profileDir, rest)
+    }
 
     await context.addInitScript(() => {
       Object.defineProperty(navigator, 'webdriver', { get: () => undefined })

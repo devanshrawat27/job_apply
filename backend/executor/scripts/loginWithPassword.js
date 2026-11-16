@@ -12,7 +12,7 @@
  */
 
 import { launchBrowser } from '../utils/browser.js'
-import { humanClick, humanType, randomWait } from '../utils/humanize.js'
+import { humanClick, humanSettle, humanType, randomWait } from '../utils/humanize.js'
 import { reportOk, reportFail } from '../utils/report.js'
 
 const HANDLE = (process.env.SCRIPT_ARG_HANDLE || '').trim().replace(/^@/, '')
@@ -54,6 +54,13 @@ async function findVisible(page, selectors, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
   return null
+}
+
+async function clearField(page, locator) {
+  await humanClick(page, locator)
+  await page.keyboard.press('Control+A').catch(() => {})
+  await page.keyboard.press('Backspace').catch(() => {})
+  await humanSettle(120, 300)
 }
 
 async function submit(page, timeoutMs = 4000) {
@@ -129,7 +136,7 @@ async function login() {
       )
     }
 
-    await humanClick(page, userInput)
+    await clearField(page, userInput)
     await humanType(page, HANDLE)
     await randomWait(500, 1000)
     await submit(page)
@@ -147,7 +154,7 @@ async function login() {
       const extraInput = await findVisible(page, CODE_SELECTORS, 6000)
       if (extraInput) {
         if (/phone|email|username|verification|code/i.test(body)) {
-          await humanClick(page, extraInput)
+          await clearField(page, extraInput)
           await humanType(page, CODE || HANDLE)
           await submit(page)
           await randomWait(1500, 2500)
@@ -168,7 +175,7 @@ async function login() {
       return reportFail('SELECTOR_MISS', 'The X password field never appeared.')
     }
 
-    await humanClick(page, passwordInput)
+    await clearField(page, passwordInput)
     await humanType(page, PASSWORD)
     await randomWait(500, 1000)
     await submit(page)
@@ -178,7 +185,7 @@ async function login() {
       await randomWait(1500, 2500)
       const codeInput = await findVisible(page, CODE_SELECTORS, 5000)
       if (codeInput) {
-        await humanClick(page, codeInput)
+        await clearField(page, codeInput)
         await humanType(page, CODE)
         await submit(page)
       }
