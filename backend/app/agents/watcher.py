@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.llm import LLMUnavailable, complete_json
 from app.models import ActionLog, Insight, JobPost, Run
+from app.services import pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,11 @@ Your job is to answer, briefly and bluntly:
 1. Is the agent healthy, or is something broken?
 2. What exactly went wrong (specific reasons, not general advice)?
 3. What should the agent or the human do next?
+
+Filters are part of the job: dead application links and mismatched posts are
+removed on purpose, so a smaller apply_links number is expected when
+dead_links_removed or rejected_new is above zero. Do not call that a data
+problem unless a filter error is reported.
 
 Never invent numbers that are not in the report. Return strict JSON only."""
 
@@ -148,11 +154,30 @@ def collect(db: Session, user_id: int | None, since_at: datetime) -> dict:
             stmt = stmt.where(JobPost.user_id == user_id)
         return int(db.scalar(stmt) or 0)
 
+    valid_links_stmt = select(func.count(JobPost.id)).where(
+        JobPost.status.in_(pipeline.OPEN_LINK_STATUSES),
+        JobPost.apply_url.isnot(None),
+        JobPost.apply_url != "",
+        JobPost.link_dead.is_(False),
+    )
+    dead_links_stmt = select(func.count(JobPost.id)).where(
+        JobPost.link_dead.is_(True), JobPost.link_checked_at >= naive
+    )
+    rejected_stmt = select(func.count(JobPost.id)).where(
+        JobPost.status == "rejected", JobPost.discovered_at >= naive
+    )
+    if user_id is not None:
+        valid_links_stmt = valid_links_stmt.where(JobPost.user_id == user_id)
+        dead_links_stmt = dead_links_stmt.where(JobPost.user_id == user_id)
+        rejected_stmt = rejected_stmt.where(JobPost.user_id == user_id)
+
     state = (
         f"queued={job_count(('queued',))} "
         f"pending_approval={job_count(('pending_approval',))} "
         f"sent={job_count(('sent',))} failed={job_count(('failed',))} "
-        f"apply_links={job_count(('new',))}"
+        f"apply_links={int(db.scalar(valid_links_stmt) or 0)} valid "
+        f"dead_links_removed={int(db.scalar(dead_links_stmt) or 0)} "
+        f"rejected_new={int(db.scalar(rejected_stmt) or 0)}"
     )
 
     return {
