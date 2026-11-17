@@ -197,6 +197,10 @@ class JobPost(Base):
     contact_email: Mapped[str] = mapped_column(String(200), default="")
     # dm | email | link  - how this post should actually be applied to
     outreach_method: Mapped[str] = mapped_column(String(20), default="dm")
+    # Dead apply links (404, unreachable, redirects back to the post) are hidden
+    # from the Apply links list so the human never wastes a click.
+    link_dead: Mapped[bool] = mapped_column(Boolean, default=False)
+    link_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Plain-language reason shown to the human when the agent stops.
     decision_reason: Mapped[str] = mapped_column(Text, default="")
     # person | company | job_board

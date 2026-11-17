@@ -76,7 +76,11 @@ def list_jobs(
             raise HTTPException(status_code=400, detail=f"unknown status '{status}'")
         stmt = stmt.where(JobPost.status == status)
     if has_link:
-        stmt = stmt.where(JobPost.apply_url.isnot(None), JobPost.apply_url != "")
+        stmt = stmt.where(
+            JobPost.apply_url.isnot(None),
+            JobPost.apply_url != "",
+            JobPost.link_dead.is_(False),
+        )
     if open_only:
         stmt = stmt.where(JobPost.status.in_(pipeline.OPEN_LINK_STATUSES))
     if q:

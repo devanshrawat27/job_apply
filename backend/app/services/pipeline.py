@@ -1422,12 +1422,63 @@ def pending_count(db: Session, user_id: int | None = None) -> int:
 # Rejected posts stay out: the agent already decided they are not a fit.
 OPEN_LINK_STATUSES = ("new", "pending_approval", "queued", "failed", "skipped")
 
+# Only these still need a link check (finished ones no longer matter).
+LINK_CHECK_STATUSES = ("new", "pending_approval", "queued")
+LINK_CHECK_BATCH = 12
+
+
+def check_apply_links(
+    db: Session, user_id: int | None = None, limit: int = LINK_CHECK_BATCH
+) -> dict:
+    """Verify application links and drop the ones that open nothing.
+
+    A dead link with an email address becomes an email application; without an
+    email it is skipped, so it never shows up in Apply links again.
+    """
+    from app.services import link_check
+
+    stmt = (
+        select(JobPost)
+        .where(
+            JobPost.status.in_(LINK_CHECK_STATUSES),
+            JobPost.apply_url.isnot(None),
+            JobPost.apply_url != "",
+            JobPost.link_checked_at.is_(None),
+        )
+        .order_by(JobPost.id.asc())
+        .limit(limit)
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+
+    checked = 0
+    dead = 0
+    for job in db.scalars(stmt).all():
+        ok, reason = link_check.check(job.apply_url)
+        job.link_checked_at = _now()
+        checked += 1
+        if not ok:
+            dead += 1
+            job.link_dead = True
+            if job.contact_email:
+                job.outreach_method = "email"
+                job.apply_url = ""
+                job.status = "pending_approval"
+                job.decision_reason = f"dead apply link ({reason}) - email them instead"
+            else:
+                job.status = "skipped"
+                job.decision_reason = f"dead apply link ({reason}) - removed"
+            _log(job, job.decision_reason)
+        db.commit()
+    return {"checked": checked, "dead": dead}
+
 
 def apply_link_count(db: Session, user_id: int | None = None) -> int:
     """Posts that carry a direct application link and are not applied yet."""
     stmt = select(func.count(JobPost.id)).where(
         JobPost.apply_url.isnot(None),
         JobPost.apply_url != "",
+        JobPost.link_dead.is_(False),
         JobPost.status.in_(OPEN_LINK_STATUSES),
     )
     if user_id is not None:

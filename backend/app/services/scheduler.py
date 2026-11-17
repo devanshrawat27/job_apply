@@ -52,6 +52,9 @@ MAX_EMPTY_SCAN_RETRIES = 4
 # Barren keywords trigger an analyst review this often (instead of every 6h).
 BARREN_REVIEW_MINUTES = 20
 
+# Verify application links this often (dead links are hidden from Apply links).
+LINK_CHECK_MINUTES = 10
+
 # While idle, like/follow a few hiring posts this often so X fills the feed
 # with hiring content instead of unrelated posts.
 FEED_TRAIN_MINUTES = 60
@@ -77,6 +80,8 @@ class AgentLoop(threading.Thread):
         self._empty_scans: dict[int | None, int] = {}
         # Last time the home feed was nudged towards hiring content.
         self._last_feed_train: dict[int | None, datetime] = {}
+        # Last time application links were verified.
+        self._last_link_check: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -158,6 +163,19 @@ class AgentLoop(threading.Thread):
                     db.rollback()
 
         write_action = "reply" if settings_row.use_public_reply else "dm"
+
+        # 0c. Verify application links. Dead links (404, typo, redirect back to
+        # the post) are removed before the human ever clicks them.
+        last_link = self._last_link_check.get(user_id)
+        if last_link is None or now - last_link >= timedelta(minutes=LINK_CHECK_MINUTES):
+            self._last_link_check[user_id] = now
+            try:
+                checked = pipeline.check_apply_links(db, user_id)
+                if checked["checked"]:
+                    logger.info("user %s link check: %s", user_id, checked)
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("link check failed for user %s", user_id, exc_info=True)
+                db.rollback()
 
         # 1. Send at most one queued post (the cool-down owns the pace).
         queued_stmt = select(func.count(JobPost.id)).where(JobPost.status == "queued")
