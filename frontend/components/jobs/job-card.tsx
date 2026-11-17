@@ -301,32 +301,13 @@ export function JobCard({
         ) : null}
 
         {job.outreach_method === 'email' && job.contact_email ? (
-          <>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
-              <div className="min-w-0">
-                <p className="text-[11px] font-medium text-muted-foreground">Application email</p>
-                <p className="truncate text-xs">{job.contact_email}</p>
-              </div>
-              {review && canAct ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy !== null}
-                  onClick={() => void sendEmail()}
-                >
-                  {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon className="size-3.5" />}
-                  Email them
-                </Button>
-              ) : null}
-            </div>
-            <EmailPreview
-              job={job}
-              canAct={Boolean(review && canAct)}
-              onChanged={() => {
-                void onChange()
-              }}
-            />
-          </>
+          <EmailPreview
+            job={job}
+            canAct={Boolean(review && canAct)}
+            onChanged={() => {
+              void onChange()
+            }}
+          />
         ) : null}
 
         {/* drafts */}
