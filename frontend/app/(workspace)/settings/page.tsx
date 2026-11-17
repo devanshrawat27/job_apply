@@ -542,6 +542,51 @@ export default function SettingsPage() {
             )}
           </div>
 
+          {keywords?.active?.length ? (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted-foreground">Performance</p>
+              <div className="overflow-hidden rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40 text-muted-foreground">
+                    <tr>
+                      <th className="px-2.5 py-1.5 text-left font-medium">Keyword</th>
+                      <th className="px-2.5 py-1.5 text-right font-medium">Scans</th>
+                      <th className="px-2.5 py-1.5 text-right font-medium">Seen</th>
+                      <th className="px-2.5 py-1.5 text-right font-medium">Relevant</th>
+                      <th className="px-2.5 py-1.5 text-right font-medium">Replies</th>
+                      <th className="px-2.5 py-1.5 text-right font-medium">Score</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {keywords.active.slice(0, 12).map((item) => (
+                      <tr key={item.keyword} className="border-t border-border">
+                        <td className="px-2.5 py-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void togglePin(item.keyword, !item.pinned)}
+                            className="inline-flex items-center gap-1 hover:underline"
+                          >
+                            {item.pinned ? <PinIcon className="size-3" /> : null}
+                            {item.keyword}
+                          </button>
+                        </td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums">{item.uses}</td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums">{item.posts_seen}</td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums">
+                          {item.posts_relevant}
+                        </td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums">{item.replies}</td>
+                        <td className="px-2.5 py-1.5 text-right tabular-nums">
+                          {Math.round(item.score * 100)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
           <div>
             <p className="mb-2 text-xs font-medium text-muted-foreground">
               Being tested
