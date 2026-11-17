@@ -259,7 +259,20 @@ def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -
             _add(db, rows, known, keyword, user_id, source="curated")
     db.flush()
 
-    active = [row for row in rows if row.status == "active"][:2]
+    # Rotate the proven keywords instead of always firing the top two: the
+    # least recently used ones go first, so scans cycle through the whole
+    # active set ("this one, then that one").
+    active_pool = [row for row in rows if row.status == "active"]
+    active_pool.sort(
+        key=lambda row: (
+            row.last_used_at is not None,
+            row.last_used_at or datetime.min,
+            row.uses or 0,
+            -_score(row),
+            row.id,
+        )
+    )
+    active = active_pool[:2]
     pinned_rows = sorted(
         [
             row
