@@ -33,6 +33,10 @@ ACTIVATE_SCORE = 0.30
 RETIRE_SCORE = 0.08
 MAX_ROWS = 80
 
+# A keyword is "barren" when it has had a fair chance and produced nothing.
+BARREN_MIN_USES = 2
+BARREN_MIN_SEEN = 8
+
 GENERAL_TECH_KEYWORDS = (
     "software engineer",
     "frontend developer",
@@ -422,6 +426,27 @@ def _prune(db: Session, user_id: int | None = None) -> None:
     for row in rows[: max(0, overflow)]:
         db.delete(row)
     db.commit()
+
+
+def barren_keywords(db: Session, user_id: int | None = None) -> list[SearchQuery]:
+    """Keywords that had a fair chance and produced nothing usable.
+
+    "Nothing usable" means no relevant post, or no post at all, after several
+    scans. Pinned keywords are never counted - the human wants them tried.
+    """
+    stmt = select(SearchQuery).where(
+        SearchQuery.status.in_(("active", "candidate")),
+        SearchQuery.pinned.is_(False),
+        (
+            (SearchQuery.uses >= BARREN_MIN_USES)
+            & (SearchQuery.posts_relevant == 0)
+            & (SearchQuery.posts_seen >= BARREN_MIN_SEEN)
+        )
+        | ((SearchQuery.uses >= BARREN_MIN_USES + 2) & (SearchQuery.posts_seen == 0)),
+    )
+    if user_id is not None:
+        stmt = stmt.where(SearchQuery.user_id == user_id)
+    return list(db.scalars(stmt.order_by(SearchQuery.uses.desc())).all())
 
 
 def snapshot(db: Session, user_id: int | None = None) -> dict:

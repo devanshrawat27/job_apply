@@ -263,6 +263,32 @@ def _adopt_keywords(db: Session, user_id: int | None, payload: dict) -> None:
             )
         )
         known.add(keyword.lower())
+
+    # Act on the model's "retire" verdicts, but only when the real numbers
+    # agree. A keyword that brought relevant posts is never retired on advice
+    # alone, and pinned keywords are never retired.
+    for item in payload.get("keyword_verdicts", []):
+        if str(item.get("verdict") or "").lower() != "retire":
+            continue
+        name = str(item.get("keyword") or "").strip().lower()
+        if not name:
+            continue
+        stmt = select(SearchQuery).where(SearchQuery.keyword.ilike(name))
+        if user_id is None:
+            stmt = stmt.where(SearchQuery.user_id.is_(None))
+        else:
+            stmt = stmt.where(SearchQuery.user_id == user_id)
+        row = db.scalar(stmt.limit(1))
+        if row is None or row.pinned or row.status == "retired":
+            continue
+        zero_relevant = (row.posts_relevant or 0) == 0 and (row.uses or 0) >= 3
+        low_score = (row.score or 0) < 0.10 and (row.uses or 0) >= 6
+        if zero_relevant or low_score:
+            row.status = "retired"
+            logger.info(
+                "retired keyword %r: %s", row.keyword, str(item.get("why") or "")[:120]
+            )
+
     db.commit()
 
 

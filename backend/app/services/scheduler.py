@@ -49,6 +49,9 @@ MAX_QUEUE_BEFORE_PAUSE = 40
 EMPTY_RETRY_MINUTES = 1
 MAX_EMPTY_SCAN_RETRIES = 4
 
+# Barren keywords trigger an analyst review this often (instead of every 6h).
+BARREN_REVIEW_MINUTES = 20
+
 # Only one process may run the agent loop. With uvicorn --workers N every
 # worker runs lifespan startup; without this lock they would all scan and send.
 SCHEDULER_LOCK = Path(__file__).resolve().parents[2] / ".scheduler.lock"
@@ -264,6 +267,39 @@ class AgentLoop(threading.Thread):
         # advice; sending stays with the agent.
         try:
             from app.services import browser_chatgpt
+
+            # Barren keywords (plenty of posts, zero relevant) get reviewed
+            # right away instead of waiting for the 6-hour cycle.
+            try:
+                from app.agents import query_lab
+
+                barren = query_lab.barren_keywords(db, user_id)
+                stale = True
+                last_insight = analyst.latest(db, user_id)
+                if last_insight is not None and last_insight.created_at is not None:
+                    created = last_insight.created_at
+                    if created.tzinfo is None:
+                        created = created.replace(tzinfo=timezone.utc)
+                    stale = (datetime.now(timezone.utc) - created) >= timedelta(
+                        minutes=BARREN_REVIEW_MINUTES
+                    )
+                if barren and stale:
+                    providers = pipeline.llm_providers(db, user_id)
+                    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(
+                        user_id
+                    )
+                    if providers or settings.llm_enabled or use_browser:
+                        analyst.review_keywords(
+                            db, user_id, providers=providers, browser=use_browser
+                        )
+                        logger.info(
+                            "user %s barren keyword review: %s keywords",
+                            user_id,
+                            len(barren),
+                        )
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("barren keyword review failed for user %s", user_id, exc_info=True)
+                db.rollback()
 
             providers = pipeline.llm_providers(db, user_id)
             use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
