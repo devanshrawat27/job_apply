@@ -40,8 +40,14 @@ export default function ApprovalsPage() {
     setFilterNote('')
     let removed = 0
     try {
-      for (let i = 0; i < 20; i += 1) {
-        const result = await api.aiFilter({ scope: 'pending', limit: 10 })
+      for (let i = 0; i < 40; i += 1) {
+        let result
+        try {
+          result = await api.aiFilter({ scope: 'pending', limit: 5 })
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+          result = await api.aiFilter({ scope: 'pending', limit: 5 })
+        }
         removed += result.rejected
         setFilterNote(
           `${removed} removed · ${result.remaining} left to check${
@@ -53,8 +59,8 @@ export default function ApprovalsPage() {
       toast.success(`ChatGPT removed ${removed} mismatched posts`)
       await reload()
       setRefreshKey((k) => k + 1)
-    } catch (err) {
-      toast.error((err as Error).message)
+    } catch {
+      toast.error('Connection dropped — click "Filter with ChatGPT" again, it continues where it stopped.')
     } finally {
       setFiltering(false)
     }
