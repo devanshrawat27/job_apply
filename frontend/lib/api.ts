@@ -225,6 +225,15 @@ export const api = {
       '/jobs/ai-filter',
       { method: 'POST', body: JSON.stringify(payload) },
     ),
+  startAiFilter: (payload: { scope: 'pending' | 'apply_links' | 'all'; force?: boolean }) =>
+    mutate<{ running: boolean; checked: number; rejected: number; remaining: number; error: string }>(
+      '/jobs/ai-filter/start',
+      { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  aiFilterStatus: () =>
+    request<{ running: boolean; checked: number; rejected: number; remaining: number; error: string }>(
+      '/jobs/ai-filter/status',
+    ),
 
   scanNow: () => mutate<Run>('/runs/scan', { method: 'POST' }),
   sendQueued: () => mutate<Run>('/runs/send', { method: 'POST' }),

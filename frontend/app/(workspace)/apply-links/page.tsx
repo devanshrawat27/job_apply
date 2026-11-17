@@ -20,31 +20,20 @@ export default function ApplyLinksPage() {
   async function filterWithAi() {
     setFiltering(true)
     setFilterNote('')
-    let removed = 0
     try {
-      for (let i = 0; i < 40; i += 1) {
-        let result
-        try {
-          result = await api.aiFilter({ scope: 'apply_links', limit: 5 })
-        } catch {
-          // A long batch can outlive a proxy connection (or a server restart).
-          // The reviewed flag is saved, so one retry picks up where we stopped.
-          await new Promise((resolve) => setTimeout(resolve, 1500))
-          result = await api.aiFilter({ scope: 'apply_links', limit: 5 })
-        }
-        removed += result.rejected
-        setFilterNote(
-          `${removed} removed · ${result.remaining} left to check${
-            result.checked ? '' : ' (no verdicts returned)'
-          }`,
-        )
-        if (!result.checked || result.remaining === 0) break
+      let state = await api.startAiFilter({ scope: 'apply_links' })
+      while (state.running) {
+        setFilterNote(`${state.rejected} removed · ${state.remaining} left to check`)
+        await new Promise((resolve) => setTimeout(resolve, 3000))
+        state = await api.aiFilterStatus()
       }
-      toast.success(`ChatGPT removed ${removed} mismatched links`)
+      if (state.error) throw new Error(state.error)
+      setFilterNote(`${state.rejected} removed · ${state.remaining} left to check`)
+      toast.success(`ChatGPT removed ${state.rejected} mismatched links`)
       await reload()
       setRefreshKey((k) => k + 1)
-    } catch {
-      toast.error('Connection dropped — click "Filter with ChatGPT" again, it continues where it stopped.')
+    } catch (err) {
+      toast.error((err as Error).message || 'Filter failed')
     } finally {
       setFiltering(false)
     }

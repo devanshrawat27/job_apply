@@ -3,8 +3,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
+import threading
+from datetime import datetime, timezone
+
 from app.agents import composer, job_filter
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.deps import CurrentUser
 from app.llm import LLMUnavailable
 from app.models import ActionLog, DraftExample, JobPost
@@ -347,6 +350,113 @@ def ai_filter(payload: AIFilterIn, user: CurrentUser = None, db: Session = Depen
         raise HTTPException(status_code=502, detail=str(exc)[:300])
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)[:300])
+
+
+_AI_FILTER: dict[int | None, dict] = {}
+_AI_FILTER_LOCK = threading.Lock()
+
+
+class AIFilterStartIn(BaseModel):
+    scope: str = "apply_links"
+    force: bool = False
+
+
+def _ai_state(user_id: int | None) -> dict:
+    with _AI_FILTER_LOCK:
+        return dict(
+            _AI_FILTER.get(user_id)
+            or {
+                "running": False,
+                "checked": 0,
+                "rejected": 0,
+                "remaining": 0,
+                "error": "",
+            }
+        )
+
+
+def _ai_filter_worker(user_id: int | None, scope: str, force: bool) -> None:
+    db = SessionLocal()
+    checked = 0
+    rejected = 0
+    remaining = 0
+    error = ""
+    try:
+        for _ in range(200):
+            settings_row = pipeline.get_settings_row(db, user_id)
+            providers = pipeline.llm_providers(db, user_id)
+            use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(
+                user_id
+            )
+            result = job_filter.review_batch(
+                db,
+                user_id,
+                scope,
+                limit=5,
+                force=force,
+                providers=providers,
+                browser=use_browser,
+            )
+            checked += int(result.get("checked") or 0)
+            rejected += int(result.get("rejected") or 0)
+            remaining = int(result.get("remaining") or 0)
+            with _AI_FILTER_LOCK:
+                _AI_FILTER[user_id] = {
+                    "running": True,
+                    "checked": checked,
+                    "rejected": rejected,
+                    "remaining": remaining,
+                    "error": "",
+                }
+            if remaining == 0 or not result.get("checked"):
+                break
+    except Exception as exc:  # noqa: BLE001 - reported to the page
+        error = str(exc)[:300]
+    finally:
+        with _AI_FILTER_LOCK:
+            _AI_FILTER[user_id] = {
+                "running": False,
+                "checked": checked,
+                "rejected": rejected,
+                "remaining": remaining,
+                "error": error,
+            }
+        db.close()
+
+
+@router.post("/ai-filter/start")
+def ai_filter_start(
+    payload: AIFilterStartIn, user: CurrentUser = None, db: Session = Depends(get_db)
+) -> dict:
+    """Run the review in the background so a slow batch never kills the request."""
+    uid = _uid(user)
+    if payload.scope not in ("pending", "apply_links", "all"):
+        raise HTTPException(status_code=400, detail="scope must be pending, apply_links or all")
+
+    with _AI_FILTER_LOCK:
+        current = _AI_FILTER.get(uid) or {}
+        if current.get("running"):
+            return dict(current)
+        _AI_FILTER[uid] = {
+            "running": True,
+            "checked": 0,
+            "rejected": 0,
+            "remaining": job_filter.remaining(db, uid, payload.scope),
+            "error": "",
+        }
+
+    threading.Thread(
+        target=_ai_filter_worker,
+        args=(uid, payload.scope, bool(payload.force)),
+        name=f"ai-filter-{uid}",
+        daemon=True,
+    ).start()
+    return _ai_state(uid)
+
+
+@router.get("/ai-filter/status")
+def ai_filter_status(user: CurrentUser = None) -> dict:
+    return _ai_state(_uid(user))
 
 
 @router.get("/ai-filter/remaining")
