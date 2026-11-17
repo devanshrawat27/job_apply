@@ -122,24 +122,24 @@ export function JobCard({
         const latest = await api.job(job.id).catch(() => null)
         if (latest === null) continue
         if (latest.email_status === 'sent') {
-          toast.success('Email chali gayi ✓', {
-            description: 'BCC copy tumhare inbox me hai.',
+          toast.success('Email delivered ✓', {
+            description: 'A BCC copy is in your inbox.',
           })
           await onChange()
           return
         }
         if (latest.email_status === 'failed' || latest.status === 'failed') {
-          toast.error(latest.last_error || 'Email nahi gayi — dobara try karo.')
+          toast.error(latest.last_error || 'The email could not be sent. Try again.')
           await onChange()
           return
         }
         if (latest.status === 'skipped') {
-          toast.error(latest.decision_reason || 'Email skip ho gayi.')
+          toast.error(latest.decision_reason || 'The email was skipped.')
           await onChange()
           return
         }
       }
-      toast.info('Email queue me hai — status thodi der me update hoga.')
+      toast.info('The email is queued — its status will update shortly.')
       await onChange()
     } catch (err) {
       setError((err as Error).message)
