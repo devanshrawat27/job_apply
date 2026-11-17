@@ -396,8 +396,11 @@ def scan(
 
             # External apply link (or a post that says "Apply Link:" but kept
             # the URL in X's link card) is applied to manually. Never send a
-            # public reply or DM for it.
-            if (job.apply_url or "").strip() or discovery.mentions_apply_link(job.content):
+            # public reply or DM for it. A post that gives an email address is
+            # an email application even when it links somewhere else.
+            if not job.contact_email and (
+                (job.apply_url or "").strip() or discovery.mentions_apply_link(job.content)
+            ):
                 job.outreach_method = "link"
                 job.reply_text = ""
                 job.dm_text = ""
@@ -871,8 +874,9 @@ def _send_one(
     method = job.outreach_method or "dm"
 
     # External apply link: never send a reply or DM. The human applies through
-    # the link (Apply links tab); a queued row may still reach this guard.
-    if (job.apply_url or "").strip() or method == "link":
+    # the link (Apply links tab); a queued row may still reach this guard. A post
+    # with an email address is an email application, link or not.
+    if method != "email" and ((job.apply_url or "").strip() or method == "link"):
         job.outreach_method = "link"
         if (job.apply_url or "").strip():
             job.status = "new"
@@ -893,7 +897,7 @@ def _send_one(
         return {}
 
     # Defensive: a legacy queued row whose text mentions an apply link.
-    if discovery.mentions_apply_link(job.content):
+    if method != "email" and discovery.mentions_apply_link(job.content):
         job.outreach_method = "link"
         if not (job.apply_url or "").strip():
             job.apply_url = job.post_url

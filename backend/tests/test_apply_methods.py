@@ -42,6 +42,22 @@ def test_email_and_url_extraction():
     assert discovery.extract_apply_url(text).startswith("https://acme.io/jobs/123")
 
 
+def test_degree_name_is_not_an_apply_link_and_email_wins():
+    text = (
+        "We are looking for developers\nEducation: BE /\nhttps://\nB.Tech\n"
+        "Passout Year: 2025 & 2026\nApply Now:\n"
+        "Send your resume to: hr@nititechnologiesindia.com"
+    )
+    assert discovery.extract_apply_url(text) == ""
+    assert discovery.extract_contact_email(text) == "hr@nititechnologiesindia.com"
+    assert (
+        discovery.detect_apply_method(
+            text, email="hr@nititechnologiesindia.com", url=""
+        )
+        == "email"
+    )
+
+
 # ---------------------------------------------------------- specificity
 
 def _post(content: str, role: str = "Backend Engineer", company: str = "Acme") -> JobPost:

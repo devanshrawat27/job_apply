@@ -86,6 +86,12 @@ _APPLY_LINK_RE = re.compile(
     re.I,
 )
 _BAD_URL_PARTS = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp4", ".svg")
+# X auto-links things like "B.Tech" in a resume-style post. That is a degree,
+# not an application link.
+_NOT_A_DOMAIN_RE = re.compile(
+    r"^(?:https?://)?(?:www\.)?(?:b|m)\.(?:tech|e|sc|com|arch|des|ca|ed|phil|a)$",
+    re.I,
+)
 _BARE_DOMAIN_RE = re.compile(
     r"(?<![\w.@/-])(?:[a-z0-9-]+\.)+(?:com|io|in|dev|app|co|net|org|ai|me|xyz|so|site|link|ly)"
     r"(?:/[^\s)>\]]*)?",
@@ -159,6 +165,8 @@ def extract_apply_url(text: str) -> str:
         cleaned = url.rstrip(".,);]")
         if any(part in cleaned.lower() for part in _BAD_URL_PARTS):
             continue
+        if _NOT_A_DOMAIN_RE.match(cleaned):
+            continue
         candidates.append(cleaned)
 
     if not candidates:
@@ -166,6 +174,8 @@ def extract_apply_url(text: str) -> str:
             cleaned = url.rstrip(".,);]")
             lowered = cleaned.lower()
             if any(part in lowered for part in _BAD_URL_PARTS):
+                continue
+            if _NOT_A_DOMAIN_RE.match(cleaned):
                 continue
             if lowered.startswith(("github.com", "twitter.com", "x.com")):
                 continue
