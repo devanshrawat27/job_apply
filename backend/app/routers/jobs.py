@@ -151,7 +151,7 @@ def send_now(
     action = "email" if job.outreach_method == "email" else (
         "reply" if settings_row.use_public_reply else "dm"
     )
-    state = limits.check(db, settings_row, action)
+    state = limits.check(db, settings_row, action, ignore_gap=True)
     if not state.allowed:
         raise HTTPException(status_code=409, detail=state.reason)
 
