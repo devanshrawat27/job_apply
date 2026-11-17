@@ -24,6 +24,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/input'
+import { EmailPreview } from '@/components/jobs/email-preview'
 import { PostBody, isLongPost } from '@/components/jobs/post-body'
 import { api } from '@/lib/api'
 import type { Job } from '@/lib/types'
@@ -260,27 +261,36 @@ export function JobCard({
         ) : null}
 
         {job.outreach_method === 'email' && job.contact_email ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
-            <div className="min-w-0">
-              <p className="text-[11px] font-medium text-muted-foreground">Application email</p>
-              <p className="truncate text-xs">{job.contact_email}</p>
+          <>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium text-muted-foreground">Application email</p>
+                <p className="truncate text-xs">{job.contact_email}</p>
+              </div>
+              {review && canAct ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={busy !== null}
+                  onClick={() => run('send', () => api.sendNow(job.id), 'Sending email...')}
+                >
+                  {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon className="size-3.5" />}
+                  Email them
+                </Button>
+              ) : null}
             </div>
-            {review && canAct ? (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={busy !== null}
-                onClick={() => run('send', () => api.sendNow(job.id), 'Sending email...')}
-              >
-                {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon className="size-3.5" />}
-                Email them
-              </Button>
-            ) : null}
-          </div>
+            <EmailPreview
+              job={job}
+              canAct={Boolean(review && canAct)}
+              onChanged={() => {
+                void onChange()
+              }}
+            />
+          </>
         ) : null}
 
         {/* drafts */}
-        {job.reply_text || job.dm_text ? (
+        {job.outreach_method !== 'email' && (job.reply_text || job.dm_text) ? (
           <div className="mt-3 grid gap-2">
             {job.reply_text ? (
               <div className="rounded-lg border border-border border-l-2 border-l-emerald-500/70 bg-muted/30 px-3 py-2">
@@ -298,7 +308,7 @@ export function JobCard({
             {job.dm_text ? (
               <div className="rounded-lg border border-border border-l-2 border-l-sky-500/70 bg-muted/30 px-3 py-2">
                 <p className="mb-1 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase">
-                  {job.outreach_method === 'email' ? 'email body' : `dm to @${job.author_handle}`}
+                  {`dm to @${job.author_handle}`}
                 </p>
                 {review && editing ? (
                   <Textarea value={dm} onChange={(e) => setDm(e.target.value)} className="text-sm" />

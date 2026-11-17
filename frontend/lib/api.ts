@@ -220,6 +220,25 @@ export const api = {
   markApplied: (id: number) => mutate<Job>(`/jobs/${id}/mark-applied`, { method: 'POST' }),
   retryDm: (id: number) => mutate<Job>(`/jobs/${id}/retry-dm`, { method: 'POST' }),
   redraftJob: (id: number) => mutate<Job>(`/jobs/${id}/redraft`, { method: 'POST' }),
+  emailPreview: (id: number) =>
+    request<{
+      to: string
+      subject: string
+      body: string
+      attachment: string
+      resume_id: number
+      resumes: { id: number; label: string; filename: string }[]
+    }>(`/jobs/${id}/email-preview`),
+  saveEmailDraft: (id: number, payload: { subject?: string; body: string }) =>
+    mutate<{ ok: boolean; subject: string; body: string }>(`/jobs/${id}/email-draft`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  setJobResume: (id: number, resumeId: number) =>
+    mutate<Job>(`/jobs/${id}/resume`, {
+      method: 'POST',
+      body: JSON.stringify({ resume_id: resumeId }),
+    }),
   aiFilter: (payload: { scope: 'pending' | 'apply_links' | 'all'; limit?: number; force?: boolean }) =>
     mutate<{ checked: number; rejected: number; matched: number; remaining: number }>(
       '/jobs/ai-filter',

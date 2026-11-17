@@ -10,7 +10,7 @@ from app.agents import composer, job_filter
 from app.database import SessionLocal, get_db
 from app.deps import CurrentUser
 from app.llm import LLMUnavailable
-from app.models import ActionLog, DraftExample, JobPost
+from app.models import ActionLog, DraftExample, JobPost, Resume
 from app.schemas import ApproveIn, JobOut
 from app.services import browser_chatgpt, email_accounts, limits, pipeline, tasks
 
@@ -299,6 +299,9 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
 
     job.reply_text = draft["reply_text"]
     job.dm_text = draft["dm_text"]
+    # The stored email is the old one; rebuild it from the new text.
+    job.email_subject = ""
+    job.email_body = ""
     job.confidence = float(draft["confidence"])
     job.uncertainties = draft["uncertainties"]
     job.generic_draft = bool(draft.get("generic"))
@@ -317,6 +320,95 @@ class AIFilterIn(BaseModel):
     scope: str = Field(default="all", max_length=20)
     limit: int = Field(default=10, ge=1, le=20)
     force: bool = False
+
+
+class EmailDraftIn(BaseModel):
+    subject: str = Field(default="", max_length=300)
+    body: str = Field(default="", max_length=8000)
+
+
+class JobResumeIn(BaseModel):
+    resume_id: int
+
+
+@router.get("/{job_id}/email-preview")
+def email_preview(
+    job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)
+) -> dict:
+    """Exactly what will be sent, so the human can read and edit it first."""
+    job = _owned(db, job_id, user)
+    if job.outreach_method != "email":
+        raise HTTPException(status_code=400, detail="this post is not an email application")
+
+    profile = pipeline.get_profile(db, job.user_id)
+    subject, body = (
+        pipeline._email_body(profile, job)
+        if profile is not None
+        else (f"Application: {job.role or 'role'}", job.dm_text or "")
+    )
+    if not (job.email_body or "").strip():
+        job.email_subject = subject[:300]
+        job.email_body = body
+        db.commit()
+
+    resumes = []
+    stmt = select(Resume).where(Resume.user_id == job.user_id)
+    for row in db.scalars(stmt.order_by(Resume.id)).all():
+        resumes.append(
+            {
+                "id": row.id,
+                "label": row.label or row.filename,
+                "filename": row.filename,
+            }
+        )
+
+    return {
+        "to": job.contact_email,
+        "subject": job.email_subject or subject,
+        "body": job.email_body or body,
+        "attachment": job.resume_label
+        or (profile.resume_filename if profile is not None else ""),
+        "resume_id": job.resume_id or 0,
+        "resumes": resumes,
+    }
+
+
+@router.post("/{job_id}/email-draft")
+def save_email_draft(
+    job_id: int,
+    payload: EmailDraftIn,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    job = _owned(db, job_id, user)
+    if payload.subject.strip():
+        job.email_subject = payload.subject.strip()[:300]
+    if payload.body.strip():
+        job.email_body = payload.body
+        job.dm_text = payload.body
+    job.logs = [*(job.logs or []), "email edited by you"][-60:]
+    db.commit()
+    return {"ok": True, "subject": job.email_subject, "body": job.email_body}
+
+
+@router.post("/{job_id}/resume", response_model=JobOut)
+def set_job_resume(
+    job_id: int,
+    payload: JobResumeIn,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
+) -> JobPost:
+    """Pick which of the uploaded resumes gets attached to this application."""
+    job = _owned(db, job_id, user)
+    resume = db.get(Resume, payload.resume_id)
+    if resume is None or (job.user_id is not None and resume.user_id != job.user_id):
+        raise HTTPException(status_code=404, detail="Resume not found")
+    job.resume_id = resume.id
+    job.resume_label = (resume.label or resume.filename)[:120]
+    job.logs = [*(job.logs or []), f"resume attached: {job.resume_label}"][-60:]
+    db.commit()
+    db.refresh(job)
+    return job
 
 
 @router.post("/ai-filter")

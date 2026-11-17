@@ -229,6 +229,11 @@ class JobPost(Base):
     next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reply_text: Mapped[str] = mapped_column(Text, default="")
     dm_text: Mapped[str] = mapped_column(Text, default="")
+    # The exact email that will be sent (subject + body). Kept separately from
+    # dm_text so the human can preview and edit it without the greeting and
+    # signature being wrapped around it twice.
+    email_subject: Mapped[str] = mapped_column(String(300), default="")
+    email_body: Mapped[str] = mapped_column(Text, default="")
 
     # new | rejected | pending_approval | approved | sending | sent | failed | skipped
     status: Mapped[str] = mapped_column(String(30), default="new", index=True)

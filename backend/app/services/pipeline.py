@@ -7,6 +7,7 @@ and no second pipeline, on purpose.
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from datetime import datetime, timedelta, timezone
 
@@ -749,9 +750,18 @@ def _send_batch(
         return run
 
 
+_ROLE_HINT_RE = re.compile(
+    r"\b(?:senior\s+|junior\s+|lead\s+)?(?:frontend|front-end|backend|back-end|full[- ]?stack|"
+    r"software|java|python|react|node(?:\.js)?|mobile|android|ios|data|ml|ai|devops|qa|cloud)\s+"
+    r"(?:engineer|developer|intern|architect)\b",
+    re.I,
+)
+
+
 def _email_body(profile: Profile, job: JobPost) -> tuple[str, str]:
     """Return (subject, body) for an application email."""
-    role = job.role or "the role"
+    hint = _ROLE_HINT_RE.search(job.content or "")
+    role = job.role or (hint.group(0).title() if hint else "this role")
     company = (job.company or "").strip()
     name = profile.full_name or "the candidate"
 
@@ -760,14 +770,20 @@ def _email_body(profile: Profile, job: JobPost) -> tuple[str, str]:
         value for value in (links.get("portfolio"), links.get("github"), links.get("linkedin")) if value
     )
 
+    core = (job.dm_text or "").strip()
+    # A drafted message often opens with its own "Hi ...", so do not add a
+    # second greeting on top of it.
     greeting = f"Hi {company} team," if company else "Hi there,"
-    body_lines = [
-        greeting,
-        "",
-        job.dm_text or "I would like to apply for this role.",
-        "",
-        "My resume is attached.",
-    ]
+    if re.match(r"^(hi|hello|hey|dear)\b", core, re.I):
+        greeting = ""
+    body_lines = [greeting, ""] if greeting else []
+    body_lines.extend(
+        [
+            core or "I would like to apply for this role.",
+            "",
+            "My resume is attached.",
+        ]
+    )
     if link_line:
         body_lines.append(f"Portfolio / GitHub: {link_line}")
     body_lines.extend(["", "Best,", name])
@@ -778,6 +794,11 @@ def _email_body(profile: Profile, job: JobPost) -> tuple[str, str]:
     if company:
         subject += f" at {company}"
     subject += f" - {name}"
+
+    # A preview the human edited (or approved) is exactly what gets sent.
+    if (job.email_body or "").strip():
+        return (job.email_subject or subject), job.email_body
+
     return subject, "\n".join(body_lines)
 
 
