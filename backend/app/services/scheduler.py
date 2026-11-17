@@ -44,6 +44,11 @@ FIT_SCREEN_MINUTES = 10
 # Scanning pauses when the queue is this deep; sending cannot keep up with it.
 MAX_QUEUE_BEFORE_PAUSE = 40
 
+# A scan that finds nothing relevant is followed by another one with the next
+# keyword rotation after this many minutes, up to this many times in a row.
+EMPTY_RETRY_MINUTES = 1
+MAX_EMPTY_SCAN_RETRIES = 4
+
 # Only one process may run the agent loop. With uvicorn --workers N every
 # worker runs lifespan startup; without this lock they would all scan and send.
 SCHEDULER_LOCK = Path(__file__).resolve().parents[2] / ".scheduler.lock"
@@ -60,6 +65,9 @@ class AgentLoop(threading.Thread):
         self._last_idle_feed: dict[int | None, datetime] = {}
         self._last_inbox: dict[int | None, datetime] = {}
         self._last_fit: dict[int | None, datetime] = {}
+        # Consecutive scans that found nothing, per user. Used to retry with the
+        # next keywords instead of sitting idle for the whole interval.
+        self._empty_scans: dict[int | None, int] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -221,6 +229,28 @@ class AgentLoop(threading.Thread):
         self._last_idle_feed[user_id] = now
         scan_run = pipeline.scan(db, user_id=user_id)
         logger.info("user %s scan pass: %s %s", user_id, scan_run.status, scan_run.stats)
+
+        # An empty scan means the agent would sit idle for the whole interval.
+        # Try the next keywords right away instead, a limited number of times.
+        stats = scan_run.stats or {}
+        found = int(stats.get("relevant") or 0)
+        if scan_run.status == "completed" and found == 0:
+            empties = self._empty_scans.get(user_id, 0) + 1
+            self._empty_scans[user_id] = empties
+            if empties <= MAX_EMPTY_SCAN_RETRIES:
+                retry_at = datetime.now(timezone.utc) - timedelta(
+                    minutes=max(0, interval - EMPTY_RETRY_MINUTES)
+                )
+                self._last_scan[user_id] = retry_at
+                logger.info(
+                    "user %s scan found nothing (retry %s/%s) - next keywords in %s min",
+                    user_id,
+                    empties,
+                    MAX_EMPTY_SCAN_RETRIES,
+                    EMPTY_RETRY_MINUTES,
+                )
+        else:
+            self._empty_scans[user_id] = 0
 
         # 4. Immediately start applying to whatever the scan found.
         if scan_run.status == "completed" and not sent_this_tick:

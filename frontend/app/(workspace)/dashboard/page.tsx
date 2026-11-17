@@ -273,9 +273,8 @@ function AnalystCard() {
   const payload = insight?.payload
   const newKeywords = payload?.new_keywords ?? []
   const tips = payload?.message_tips ?? []
-  const retirements = (payload?.keyword_verdicts ?? []).filter(
-    (item) => item.verdict === 'retire',
-  )
+  const verdicts = payload?.keyword_verdicts ?? []
+  const retirements = verdicts.filter((item) => item.verdict === 'retire')
 
   return (
     <Card>
@@ -326,6 +325,35 @@ function AnalystCard() {
                     </span>
                   ))}
                 </div>
+              </div>
+            ) : null}
+
+            {verdicts.length ? (
+              <div>
+                <p className="mb-1 text-[11px] font-medium text-muted-foreground">
+                  Keyword verdicts
+                </p>
+                <ul className="space-y-1 text-xs">
+                  {verdicts.slice(0, 6).map((item) => (
+                    <li key={item.keyword} className="flex gap-2">
+                      <span
+                        className={
+                          item.verdict === 'keep'
+                            ? 'shrink-0 font-medium text-emerald-600 dark:text-emerald-400'
+                            : item.verdict === 'retire'
+                              ? 'shrink-0 font-medium text-amber-600 dark:text-amber-400'
+                              : 'shrink-0 font-medium text-sky-600 dark:text-sky-400'
+                        }
+                      >
+                        {item.verdict}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="font-medium">{item.keyword}</span>
+                        <span className="text-muted-foreground"> — {item.why}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ) : null}
 

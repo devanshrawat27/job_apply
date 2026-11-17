@@ -44,6 +44,10 @@ Your job:
    candidate can actually win. Prefer concrete role names and hiring phrases.
    Never suggest senior/staff/principal/lead/founding/manager titles.
 3. Give short, practical advice to make the outgoing replies and DMs better.
+4. For a keyword that found posts but zero relevant ones, or relevant posts but
+   zero replies, state the likely reason in its verdict "why". Be concrete:
+   "almost every hit was a sales role", "posts are all 5+ years experience",
+   "nobody answers job-board accounts", and so on.
 
 Be blunt and specific. No filler. Return strict JSON only."""
 
