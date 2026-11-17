@@ -109,6 +109,46 @@ export function JobCard({
     }
   }
 
+  async function sendEmail() {
+    setBusy('send')
+    setError('')
+    try {
+      await api.sendNow(job.id)
+      // The mail goes out in the background, so watch the job until it settles
+      // and only then say whether it was delivered.
+      const deadline = Date.now() + 180000
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 2500))
+        const latest = await api.job(job.id).catch(() => null)
+        if (latest === null) continue
+        if (latest.email_status === 'sent') {
+          toast.success('Email chali gayi ✓', {
+            description: 'BCC copy tumhare inbox me hai.',
+          })
+          await onChange()
+          return
+        }
+        if (latest.email_status === 'failed' || latest.status === 'failed') {
+          toast.error(latest.last_error || 'Email nahi gayi — dobara try karo.')
+          await onChange()
+          return
+        }
+        if (latest.status === 'skipped') {
+          toast.error(latest.decision_reason || 'Email skip ho gayi.')
+          await onChange()
+          return
+        }
+      }
+      toast.info('Email queue me hai — status thodi der me update hoga.')
+      await onChange()
+    } catch (err) {
+      setError((err as Error).message)
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
       {needsYou ? (
@@ -272,7 +312,7 @@ export function JobCard({
                   size="sm"
                   variant="outline"
                   disabled={busy !== null}
-                  onClick={() => run('send', () => api.sendNow(job.id), 'Sending email...')}
+                  onClick={() => void sendEmail()}
                 >
                   {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon className="size-3.5" />}
                   Email them
@@ -447,7 +487,7 @@ export function JobCard({
               <Button
                 size="sm"
                 disabled={busy !== null}
-                onClick={() => run('send', () => api.sendNow(job.id), 'Sending email...')}
+                onClick={() => void sendEmail()}
               >
                 {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <MailIcon />}
                 Send email
@@ -497,7 +537,15 @@ export function JobCard({
           ) : null}
 
           {!review && canAct && job.status === 'queued' ? (
-            <Button size="sm" disabled={busy !== null} onClick={() => run('send', () => api.sendNow(job.id), 'Sending now')}>
+            <Button
+              size="sm"
+              disabled={busy !== null}
+              onClick={() =>
+                job.outreach_method === 'email'
+                  ? void sendEmail()
+                  : run('send', () => api.sendNow(job.id), 'Sending now')
+              }
+            >
               {busy === 'send' ? <Loader2Icon className="animate-spin" /> : <SendIcon />}
               Send now
             </Button>

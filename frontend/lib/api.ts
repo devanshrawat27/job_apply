@@ -219,6 +219,7 @@ export const api = {
   reportFake: (id: number) => mutate<Job>(`/jobs/${id}/report-fake`, { method: 'POST' }),
   markApplied: (id: number) => mutate<Job>(`/jobs/${id}/mark-applied`, { method: 'POST' }),
   retryDm: (id: number) => mutate<Job>(`/jobs/${id}/retry-dm`, { method: 'POST' }),
+  job: (id: number) => request<Job>(`/jobs/${id}`),
   redraftJob: (id: number) => mutate<Job>(`/jobs/${id}/redraft`, { method: 'POST' }),
   emailPreview: (id: number) =>
     request<{
