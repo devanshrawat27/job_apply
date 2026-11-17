@@ -122,8 +122,8 @@ export function JobCard({
         const latest = await api.job(job.id).catch(() => null)
         if (latest === null) continue
         if (latest.email_status === 'sent') {
-          toast.success('Email delivered ✓', {
-            description: 'A BCC copy is in your inbox.',
+          toast.success('Email sent successfully', {
+            description: 'Your resume was attached. A copy is in your inbox.',
           })
           await onChange()
           return
