@@ -31,6 +31,7 @@ RESULT_MARKER = "RESULT_JSON:"
 SCRIPTS: dict[str, str] = {
     "search": "scripts/searchJobs.js",
     "feed": "scripts/feedJobs.js",
+    "train_feed": "scripts/trainFeed.js",
     "reply": "scripts/replyToPost.js",
     "dm": "scripts/sendDm.js",
     "follow": "scripts/followUser.js",
@@ -45,6 +46,7 @@ SCRIPTS: dict[str, str] = {
 TIMEOUTS: dict[str, int] = {
     "search": 100,
     "feed": 120,
+    "train_feed": 130,
     "reply": 90,
     "dm": 240,
     "follow": 90,

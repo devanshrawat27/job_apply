@@ -23,7 +23,7 @@ from app.database import SessionLocal
 from app.models import JobPost, User
 from app.agents import analyst, inbox, watcher
 from app.config import settings
-from app.services import accounts, browser_chatgpt, limits, pipeline
+from app.services import accounts, browser_chatgpt, executor, limits, pipeline
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,10 @@ MAX_EMPTY_SCAN_RETRIES = 4
 # Barren keywords trigger an analyst review this often (instead of every 6h).
 BARREN_REVIEW_MINUTES = 20
 
+# While idle, like/follow a few hiring posts this often so X fills the feed
+# with hiring content instead of unrelated posts.
+FEED_TRAIN_MINUTES = 60
+
 # Only one process may run the agent loop. With uvicorn --workers N every
 # worker runs lifespan startup; without this lock they would all scan and send.
 SCHEDULER_LOCK = Path(__file__).resolve().parents[2] / ".scheduler.lock"
@@ -71,6 +75,8 @@ class AgentLoop(threading.Thread):
         # Consecutive scans that found nothing, per user. Used to retry with the
         # next keywords instead of sitting idle for the whole interval.
         self._empty_scans: dict[int | None, int] = {}
+        # Last time the home feed was nudged towards hiring content.
+        self._last_feed_train: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -188,6 +194,34 @@ class AgentLoop(threading.Thread):
                 feed_scrolls=IDLE_FEED_SCROLLS,
             )
             logger.info("user %s idle feed: %s %s", user_id, feed_run.status, feed_run.stats)
+
+            # While idle, nudge the home feed towards hiring content: a couple
+            # of likes and one follow teach X what to show next time.
+            last_train = self._last_feed_train.get(user_id)
+            train_due = last_train is None or now - last_train >= timedelta(
+                minutes=FEED_TRAIN_MINUTES
+            )
+            if train_due:
+                self._last_feed_train[user_id] = now
+                try:
+                    account = accounts.active_account(db, user_id)
+                    creds = accounts.account_credentials(account) if account else None
+                    if creds:
+                        train = executor.run_script(
+                            "train_feed",
+                            {"likes": 2, "follows": 1, "scrolls": 5},
+                            user_id=user_id,
+                            creds=creds,
+                            timeout=130,
+                        )
+                        logger.info(
+                            "user %s feed training: %s",
+                            user_id,
+                            train.get("data") if train.get("success") else train.get("error"),
+                        )
+                except Exception:  # noqa: BLE001 - never break the loop
+                    logger.warning("feed training failed for user %s", user_id, exc_info=True)
+
             if feed_run.status == "completed":
                 state = limits.check(db, settings_row, write_action)
                 if state.allowed:
