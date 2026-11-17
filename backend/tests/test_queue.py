@@ -79,3 +79,29 @@ def test_old_queued_posts_expire_and_fresh_ones_stay():
         db.execute(delete(JobPost).where(JobPost.user_id == USER))
         db.commit()
         db.close()
+
+
+def test_approving_an_old_post_keeps_it_alive():
+    db = SessionLocal()
+    now = datetime.now(timezone.utc)
+    try:
+        db.execute(delete(JobPost).where(JobPost.user_id == USER))
+        approved = JobPost(
+            user_id=USER,
+            post_id="approved-1",
+            content="We are hiring a React developer. DM me your resume.",
+            status="queued",
+            discovered_at=now - timedelta(hours=30),
+            # You edited this one and pressed send a minute ago.
+            decided_at=now - timedelta(minutes=1),
+        )
+        db.add(approved)
+        db.commit()
+
+        assert pipeline._expire_queued(db, USER) == 0
+        db.refresh(approved)
+        assert approved.status == "queued"
+    finally:
+        db.execute(delete(JobPost).where(JobPost.user_id == USER))
+        db.commit()
+        db.close()

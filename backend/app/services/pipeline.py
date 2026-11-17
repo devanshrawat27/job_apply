@@ -628,16 +628,25 @@ def send_batch(
 
 
 def _expire_queued(db: Session, user_id: int | None, hours: int = 24) -> int:
-    """Skip queued posts that have waited too long to still be worth applying to."""
+    """Skip queued posts that have waited too long to still be worth applying to.
+
+    The clock starts when the post was found - or when you approved it, because
+    approving a post you just edited must never expire it immediately.
+    """
     cutoff = _now() - timedelta(hours=hours)
-    stmt = select(JobPost).where(
-        JobPost.status == "queued", JobPost.discovered_at < cutoff
-    )
+    stmt = select(JobPost).where(JobPost.status == "queued")
     if user_id is not None:
         stmt = stmt.where(JobPost.user_id == user_id)
 
     expired = 0
     for job in db.scalars(stmt).all():
+        moment = job.decided_at or job.discovered_at
+        if moment is None:
+            continue
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=timezone.utc)
+        if moment >= cutoff:
+            continue
         job.status = "skipped"
         job.decision_reason = f"expired - waited more than {hours}h in the queue"
         job.reply_text = ""
