@@ -173,7 +173,8 @@ def review_batch(
         job.ai_fit = fit
         job.ai_note = reason
 
-        if bool(verdict.get("match")):
+        weak = not bool(verdict.get("match")) or fit < 50
+        if not weak:
             matched += 1
             job.logs = [
                 *(job.logs or []),

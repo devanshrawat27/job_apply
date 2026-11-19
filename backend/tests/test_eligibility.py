@@ -79,3 +79,39 @@ def test_graduation_year_is_read_from_common_resume_formats():
 def test_remote_still_respects_legal_work_authorization():
     text = "Remote role. Must be authorized to work in the US."
     assert discovery.eligibility_gap(INDIA, text) is not None
+
+
+JUNIOR = Profile(
+    location="Dehradun, India",
+    resume_text="B.Tech Computer Science, 2027",
+    seniority="fresher",
+    experience_months=4,
+    skills=["react", "node.js"],
+    domain="tech",
+)
+EXPERIENCED = Profile(
+    location="Dehradun, India",
+    resume_text="B.Tech Computer Science, 2019",
+    seniority="experienced",
+    experience_months=60,
+    skills=["python"],
+    domain="tech",
+)
+
+
+def test_senior_titles_are_rejected_for_early_career_profiles():
+    post = "NOW HIRING Senior ML Engineer to lead research and production deployment."
+    assert discovery.eligibility_gap(JUNIOR, post) is not None
+    assert discovery.eligibility_gap(EXPERIENCED, post) is None
+
+
+def test_non_software_engineering_roles_are_rejected():
+    assert (
+        discovery.eligibility_gap(
+            JUNIOR,
+            "We are hiring a Public Works Engineer for public infrastructure projects.",
+        )
+        is not None
+    )
+    assert discovery.eligibility_gap(JUNIOR, "Civil engineer required for site work") is not None
+    assert discovery.eligibility_gap(JUNIOR, "We are hiring a backend engineer. DM me.") is None

@@ -739,6 +739,19 @@ _SPONSOR_RE = re.compile(
 )
 
 
+_SENIOR_TITLE_RE = re.compile(
+    r"\b(senior|sr\.?|staff|principal|lead|head of|director|vp|chief)\b"
+    r"[^.\n]{0,40}\b(engineer|developer|scientist|architect|manager|analyst)\b",
+    re.I,
+)
+_DISCIPLINE_RE = re.compile(
+    r"\b(public works|civil|structural|mechanical|electrical|environmental)\b"
+    r"[^.\n]{0,25}\bengineer\b"
+    r"|\bengineer\b[^.\n]{0,25}\b(public works|civil|structural|mechanical|electrical)\b",
+    re.I,
+)
+
+
 def eligibility_gap(profile: Profile, text: str) -> str | None:
     """Hard eligibility gate: reject before drafting when the candidate cannot qualify.
 
@@ -750,6 +763,18 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
     body = text or ""
     resume = (profile.resume_text or "").lower()
     location = (profile.location or "").strip().lower()
+
+    # Early-career candidates should never be sent to senior/staff/lead roles.
+    level = (profile.seniority or "").strip().lower()
+    junior = (profile.experience_months or 0) <= 12 or any(
+        word in level for word in ("intern", "fresher", "junior", "entry", "graduate")
+    )
+    if junior and _SENIOR_TITLE_RE.search(body):
+        return "senior-level role, and the profile is early-career"
+
+    # "Public Works Engineer" is not a software job even though it says engineer.
+    if (profile.domain or "tech") == "tech" and _DISCIPLINE_RE.search(body):
+        return "not a software engineering role (civil/mechanical discipline)"
 
     authorised_us = bool(_US_LOCATION_RE.search(location)) or "authorized to work in the us" in resume
     authorised_us = authorised_us or "us citizen" in resume or "green card" in resume
