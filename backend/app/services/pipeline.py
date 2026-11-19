@@ -1507,6 +1507,37 @@ def check_apply_links(
     return {"checked": checked, "dead": dead}
 
 
+def feed_follow_handles(
+    db: Session, user_id: int | None = None, limit: int = 3
+) -> list[str]:
+    """Accounts worth following to fill the home feed with hiring posts.
+
+    These are the people and companies whose posts already passed the job
+    filters, so following them is a targeted signal, not random follows.
+    """
+    stmt = (
+        select(JobPost.author_handle)
+        .where(
+            JobPost.author_handle != "",
+            JobPost.author_type.in_(("person", "company")),
+            JobPost.status.in_(("new", "pending_approval", "queued", "sent")),
+        )
+        .order_by(JobPost.id.desc())
+        .limit(40)
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+
+    handles: list[str] = []
+    for handle in db.scalars(stmt).all():
+        clean = str(handle or "").strip().lstrip("@")
+        if clean and clean.lower() not in {h.lower() for h in handles}:
+            handles.append(clean)
+        if len(handles) >= limit:
+            break
+    return handles
+
+
 def apply_link_count(db: Session, user_id: int | None = None) -> int:
     """Posts that carry a direct application link and are not applied yet."""
     stmt = select(func.count(JobPost.id)).where(

@@ -46,7 +46,7 @@ SCRIPTS: dict[str, str] = {
 TIMEOUTS: dict[str, int] = {
     "search": 100,
     "feed": 120,
-    "train_feed": 130,
+    "train_feed": 150,
     "reply": 90,
     "dm": 240,
     "follow": 90,

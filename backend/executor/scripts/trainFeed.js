@@ -29,6 +29,10 @@ const clamp = (value, fallback, max) => {
 const LIKES = clamp(process.env.SCRIPT_ARG_LIKES, 2, 5)
 const FOLLOWS = clamp(process.env.SCRIPT_ARG_FOLLOWS, 1, 3)
 const SCROLLS = clamp(process.env.SCRIPT_ARG_SCROLLS, 5, 10)
+const HANDLES = (process.env.SCRIPT_ARG_HANDLES || '')
+  .split(',')
+  .map((handle) => handle.trim().replace(/^@/, ''))
+  .filter(Boolean)
 
 const HIRING_RE =
   /(we'?re hiring|we are hiring|now hiring|is hiring|hiring a|hiring an|looking to hire|open role|open position|job opening|vacancy|internship|join our team|apply (?:here|at|now|with)|send (?:your )?(?:resume|cv)|dm (?:me|us) your (?:resume|cv))/i
@@ -106,7 +110,7 @@ async function scrollAndAct(page, result, likedTexts) {
 
 async function main() {
   const { context, page } = await launchBrowser()
-  const result = { liked: 0, followed: 0, seen: 0, source: 'home' }
+  const result = { liked: 0, followed: 0, seen: 0, source: 'home', followed_handles: [] }
   const likedTexts = new Set()
 
   try {
@@ -131,6 +135,22 @@ async function main() {
       await randomWait(3500, 5500)
       if (await findTweets(page)) {
         await scrollAndAct(page, result, likedTexts)
+      }
+    }
+
+    // Direct follows: accounts whose posts already passed the job filters.
+    for (const handle of HANDLES) {
+      if (result.followed >= FOLLOWS) break
+      await page
+        .goto(`https://x.com/${handle}`, { waitUntil: 'domcontentloaded', timeout: 45000 })
+        .catch(() => {})
+      await randomWait(2200, 3400)
+      const follow = page.locator('button[data-testid$="-follow"]').first()
+      if ((await follow.count().catch(() => 0)) > 0) {
+        await follow.click({ timeout: 5000 }).catch(() => {})
+        result.followed += 1
+        result.followed_handles.push(handle)
+        await randomWait(1400, 2400)
       }
     }
 

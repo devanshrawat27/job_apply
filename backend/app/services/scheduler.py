@@ -225,12 +225,18 @@ class AgentLoop(threading.Thread):
                     account = accounts.active_account(db, user_id)
                     creds = accounts.account_credentials(account) if account else None
                     if creds:
+                        handles = pipeline.feed_follow_handles(db, user_id, limit=3)
                         train = executor.run_script(
                             "train_feed",
-                            {"likes": 2, "follows": 1, "scrolls": 5},
+                            {
+                                "likes": 2,
+                                "follows": 2,
+                                "scrolls": 5,
+                                "handles": ",".join(handles),
+                            },
                             user_id=user_id,
                             creds=creds,
-                            timeout=130,
+                            timeout=150,
                         )
                         logger.info(
                             "user %s feed training: %s",
