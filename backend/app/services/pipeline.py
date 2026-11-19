@@ -109,6 +109,12 @@ def _log(job: JobPost, message: str) -> None:
     job.logs = [*(job.logs or []), f"{stamp} {message}"][-60:]
 
 
+# X rate-limits search hard for new accounts. When that happens, pause the
+# keyword searches instead of hammering and making the limit worse.
+_SEARCH_PAUSE: dict[int | None, datetime] = {}
+SEARCH_PAUSE_MINUTES = 45
+
+
 # ---------------------------------------------------------------------- scan
 
 def _search(query: str, count: int, creds: dict | None, user_id: int | None = None) -> dict:
@@ -214,30 +220,46 @@ def scan(
                 f"feed skipped: {feed_result.get('error') or feed_result.get('code')}"
             )
 
-        for row in keywords:
-            if not budget_left():
-                stats["errors"].append("search budget exhausted - remaining keywords skipped")
-                break
-            result = _search(
-                query_lab.wrap_query(row.keyword, settings_row, profile=profile),
-                settings_row.max_posts_per_scan,
-                creds,
-                user_id=user_id,
+        pause_until = _SEARCH_PAUSE.get(user_id)
+        if pause_until is not None and _now() < pause_until:
+            stats["errors"].append(
+                "search paused until "
+                f"{pause_until.strftime('%H:%M')} UTC (X rate limit) - feed only"
             )
-            data = result.get("data") or {}
-            posts = data.get("posts") or []
-
-            if not result.get("success"):
-                stats["errors"].append(f"search failed: {result.get('error') or result.get('code')}")
-                if result.get("code") == "SESSION_EXPIRED":
-                    account.status = "expired"
-                    db.commit()
+        else:
+            for row in keywords:
+                if not budget_left():
+                    stats["errors"].append("search budget exhausted - remaining keywords skipped")
                     break
-                continue
+                result = _search(
+                    query_lab.wrap_query(row.keyword, settings_row, profile=profile),
+                    settings_row.max_posts_per_scan,
+                    creds,
+                    user_id=user_id,
+                )
+                data = result.get("data") or {}
+                posts = data.get("posts") or []
 
-            for post in posts:
-                post["_keyword"] = row.keyword
-            raw_posts.extend(posts)
+                if not result.get("success"):
+                    error_text = str(result.get("error") or result.get("code") or "")
+                    stats["errors"].append(f"search failed: {error_text}")
+                    if result.get("code") == "SESSION_EXPIRED":
+                        account.status = "expired"
+                        db.commit()
+                        break
+                    if "rate" in error_text.lower():
+                        _SEARCH_PAUSE[user_id] = _now() + timedelta(
+                            minutes=SEARCH_PAUSE_MINUTES
+                        )
+                        stats["errors"].append(
+                            f"search paused for {SEARCH_PAUSE_MINUTES} min: X rate limit"
+                        )
+                        break
+                    continue
+
+                for post in posts:
+                    post["_keyword"] = row.keyword
+                raw_posts.extend(posts)
 
         stats["posts_seen"] = len(raw_posts)
 

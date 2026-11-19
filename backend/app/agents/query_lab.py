@@ -177,9 +177,15 @@ def seed_keywords(profile: Profile) -> list[str]:
     seeds = selected_roles(profile)[:3]
     seen = {seed.lower() for seed in seeds}
 
-    for skill in (profile.skills or [])[:6]:
-        clean = str(skill).strip()
-        if len(clean) < 3:
+    for skill in (profile.skills or [])[:8]:
+        clean = " ".join(str(skill).split())
+        if len(clean) < 3 or len(clean) > 40:
+            continue
+        # Resume extraction sometimes returns a whole sentence as a "skill".
+        # Searching that literally returns nothing but noise.
+        if any(char in clean for char in ".;,:!?()[]/"):
+            continue
+        if len(clean.split()) > 4:
             continue
         if clean.lower() in seen:
             continue

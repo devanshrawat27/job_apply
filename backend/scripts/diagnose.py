@@ -85,6 +85,15 @@ def main() -> None:
                 .limit(6)
             ).all()
         )
+        if runs:
+            last = runs[0].started_at
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=timezone.utc)
+                age = (datetime.now(timezone.utc) - last).total_seconds() / 60
+                print(f"  last run was {age:.0f} minutes ago")
+                if age > 60:
+                    print("  WARNING: the agent has not run for over an hour - is the app running?")
         for run in runs:
             stats = run.stats or {}
             print(f"  #{run.id} {run.kind:5} {run.status:9} {run.started_at}")
