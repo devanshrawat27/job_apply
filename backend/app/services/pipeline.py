@@ -487,6 +487,20 @@ def scan(
             job.uncertainties = draft["uncertainties"]
             job.generic_draft = bool(draft.get("generic"))
 
+            if draft.get("eligible") is False:
+                reason = (
+                    str(draft.get("eligibility_reason") or "").strip()
+                    or "the candidate does not qualify"
+                )
+                job.status = "rejected"
+                job.decision_reason = f"not eligible: {reason}"
+                job.reply_text = ""
+                job.dm_text = ""
+                job.confidence = 0.0
+                stats["rejected"] += 1
+                _log(job, job.decision_reason)
+                continue
+
             veto = composer.auto_reject_reason(draft.get("uncertainties"))
             if veto:
                 job.status = "rejected"

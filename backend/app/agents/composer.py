@@ -51,6 +51,10 @@ links: {links}
 about: {pitch}
 github: {github}
 tone: {tone}
+country: {country}
+work authorization: {work_authorization}
+graduation year: {graduation_year}
+willing to relocate: {relocate}
 
 JOB POST
 author: @{author}
@@ -69,12 +73,27 @@ text:
 {examples}
 Return JSON:
 {{
+  "eligible": true,
+  "eligibility_reason": "why the candidate cannot qualify, or empty",
   "reply_text": "the public reply, under 260 chars",
   "dm_text": "the DM, max 500 chars, 2-3 short lines",
   "used_detail": "the exact phrase from the post you referenced",
   "confidence": 0.0,
   "uncertainties": ["specific reasons you are not sure this is the right move"]
 }}
+
+eligibility (do this FIRST):
+  Check the post against the candidate above. Set "eligible": false and fill
+  "eligibility_reason" when any of these is true:
+  - it requires citizenship, a work permit/visa, or a security clearance the
+    candidate does not have
+  - it needs more experience than the candidate has
+  - it is a senior/staff/lead role and the candidate is early-career
+  - the role is outside the candidate's target roles and skills
+  - it needs a graduation batch or student status the candidate does not match
+  When the post states such a requirement and the candidate's data is unknown,
+  treat it as NOT eligible. When not eligible, leave both texts empty.
+  Otherwise set "eligible": true.
 
 confidence guidance:
   0.9-1.0  the post clearly hires for a role the candidate matches, contact is obvious
@@ -270,6 +289,10 @@ def compose(
         pitch=profile.pitch or "not provided",
         github=profile.github_summary or "not linked",
         tone=profile.tone or "friendly-professional",
+        country=getattr(profile, "country", "") or "not stated",
+        work_authorization=getattr(profile, "work_authorization", "") or "not stated",
+        graduation_year=getattr(profile, "graduation_year", 0) or "not stated",
+        relocate="yes" if getattr(profile, "willing_to_relocate", True) else "no",
         author=post.author_handle,
         company=post.company or "",
         role=post.role or "",

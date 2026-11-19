@@ -69,6 +69,13 @@ class Profile(Base):
     # Total professional experience in months. 4 months is valid, so a plain
     # "years" integer loses information.
     experience_months: Mapped[int] = mapped_column(Integer, default=0)
+    # Structured eligibility. Guessing from free text caused too many wrong
+    # rejects (a location like "Dehradun" without "India", a missing batch).
+    country: Mapped[str] = mapped_column(String(80), default="")
+    # citizen | permanent | needs_sponsorship | student
+    work_authorization: Mapped[str] = mapped_column(String(40), default="")
+    graduation_year: Mapped[int] = mapped_column(Integer, default=0)
+    willing_to_relocate: Mapped[bool] = mapped_column(Boolean, default=True)
     current_company: Mapped[str] = mapped_column(String(200), default="")
     current_role: Mapped[str] = mapped_column(String(200), default="")
     min_salary: Mapped[str] = mapped_column(String(80), default="")

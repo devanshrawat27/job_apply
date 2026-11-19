@@ -789,6 +789,9 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
     body = text or ""
     resume = (profile.resume_text or "").lower()
     location = (profile.location or "").strip().lower()
+    country = (getattr(profile, "country", "") or "").strip().lower()
+    auth = (getattr(profile, "work_authorization", "") or "").strip().lower()
+    grad = str(getattr(profile, "graduation_year", 0) or "") or graduation_year(resume)
 
     # Early-career candidates should never be sent to senior/staff/lead roles.
     level = (profile.seniority or "").strip().lower()
@@ -802,18 +805,21 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
     if (profile.domain or "tech") == "tech" and _DISCIPLINE_RE.search(body):
         return "not a software engineering role (civil/mechanical discipline)"
 
-    authorised_us = bool(_US_LOCATION_RE.search(location)) or "authorized to work in the us" in resume
+    us_country = bool(re.search(r"\b(us|usa|u\.s\.|united states|america)\b", country))
+    authorised_us = us_country and auth in ("citizen", "permanent", "green card")
+    authorised_us = authorised_us or bool(_US_LOCATION_RE.search(location))
+    authorised_us = authorised_us or "authorized to work in the us" in resume
     authorised_us = authorised_us or "us citizen" in resume or "green card" in resume
 
     if _US_ONLY_RE.search(body) and not authorised_us:
-        if not location:
+        if not country and not location:
             return "needs US work authorization or clearance, and the profile has no location"
         return "needs US work authorization or clearance, which the profile does not have"
 
     # On-site roles abroad need visa sponsorship. Remote roles are exempt: the
     # candidate can work from anywhere, so location alone must not reject them.
     remote = bool(_REMOTE_RE.search(body))
-    candidate_in_india = bool(_INDIA_RE.search(f"{location} {resume}"))
+    candidate_in_india = bool(_INDIA_RE.search(f"{country} {location} {resume}"))
     if not remote and candidate_in_india:
         abroad = _FOREIGN_ONSITE_RE.search(body)
         place = abroad.group(1) if abroad else ""
@@ -835,12 +841,11 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
 
     student_required = _STUDENT_ONLY_RE.search(body)
     if student_required:
-        graduation = graduation_year(resume)
-        if not graduation:
-            return "student/graduation requirement, and the resume has no graduation year"
+        if not grad:
+            return "student/graduation requirement, and the profile has no graduation year"
         years = re.findall(r"20\d\d", body)
-        if years and graduation not in years:
-            return f"requires the {years[0]} batch, the resume says {graduation}"
+        if years and grad not in years:
+            return f"requires the {years[0]} batch, the profile says {grad}"
 
     return None
 

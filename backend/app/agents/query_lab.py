@@ -27,7 +27,7 @@ from app.models import Profile, SearchQuery
 
 logger = logging.getLogger(__name__)
 
-MAX_KEYWORDS_PER_SCAN = 3
+MAX_KEYWORDS_PER_SCAN = 4
 PINNED_PER_SCAN = 3
 ACTIVATE_SCORE = 0.30
 RETIRE_SCORE = 0.08

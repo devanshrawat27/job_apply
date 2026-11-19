@@ -28,6 +28,10 @@ export interface Profile {
   avoid: string[]
   seniority: string
   experience_months: number
+  country: string
+  work_authorization: string
+  graduation_year: number
+  willing_to_relocate: boolean
   current_company: string
   current_role: string
   min_salary: string

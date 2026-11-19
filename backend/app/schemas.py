@@ -30,6 +30,10 @@ class ProfileIn(BaseModel):
 
     seniority: str = "fresher"
     experience_months: int = 0
+    country: str = ""
+    work_authorization: str = ""
+    graduation_year: int = 0
+    willing_to_relocate: bool = True
     current_company: str = ""
     current_role: str = ""
     min_salary: str = ""

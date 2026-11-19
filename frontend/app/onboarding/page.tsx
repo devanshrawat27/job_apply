@@ -398,6 +398,49 @@ export default function OnboardingPage() {
               </Field>
             </div>
 
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="Country" hint="Where you can legally work from.">
+                <Input
+                  value={profile.country}
+                  onChange={(e) => patchProfile({ country: e.target.value })}
+                  placeholder="India"
+                />
+              </Field>
+              <Field label="Work authorization">
+                <select
+                  value={profile.work_authorization || ''}
+                  onChange={(e) => patchProfile({ work_authorization: e.target.value })}
+                  className="h-8 rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none dark:bg-input/30"
+                >
+                  <option value="">Not set</option>
+                  <option value="citizen">Citizen</option>
+                  <option value="permanent">Permanent resident</option>
+                  <option value="needs_sponsorship">Needs visa sponsorship</option>
+                  <option value="student">Student</option>
+                </select>
+              </Field>
+              <Field label="Graduation year" hint="For batch-specific roles.">
+                <Input
+                  type="number"
+                  value={profile.graduation_year || ''}
+                  onChange={(e) =>
+                    patchProfile({ graduation_year: Number(e.target.value) || 0 })
+                  }
+                  placeholder="2027"
+                />
+              </Field>
+            </div>
+
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={profile.willing_to_relocate ?? true}
+                onChange={(e) => patchProfile({ willing_to_relocate: e.target.checked })}
+                className="size-4 shrink-0 accent-foreground"
+              />
+              Willing to relocate for an on-site role
+            </label>
+
             <label className="flex cursor-pointer items-start gap-2.5 rounded-xl border border-border bg-muted/20 p-3">
               <input
                 type="checkbox"
