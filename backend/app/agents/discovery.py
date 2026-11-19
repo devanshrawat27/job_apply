@@ -820,6 +820,8 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
     # candidate can work from anywhere, so location alone must not reject them.
     remote = bool(_REMOTE_RE.search(body))
     candidate_in_india = bool(_INDIA_RE.search(f"{country} {location} {resume}"))
+    relocate_value = getattr(profile, "willing_to_relocate", True)
+    willing_to_relocate = True if relocate_value is None else bool(relocate_value)
     if not remote and candidate_in_india:
         abroad = _FOREIGN_ONSITE_RE.search(body)
         place = abroad.group(1) if abroad else ""
@@ -833,6 +835,8 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
                 place = role_place.group(1).strip()
         if not place and "hk$" in body.lower():
             place = "Hong Kong"
+        if place and not willing_to_relocate:
+            return f"on-site role in {place}, and the candidate is not willing to relocate"
         if place and not _SPONSOR_RE.search(body):
             return (
                 f"on-site role in {place} with no visa sponsorship, "

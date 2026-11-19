@@ -144,3 +144,18 @@ def test_plain_location_lines_abroad_are_rejected_for_india_candidate():
         )
         is None
     )
+
+
+def test_not_willing_to_relocate_rejects_onsite_abroad():
+    stay = Profile(
+        location="Dehradun",
+        country="India",
+        willing_to_relocate=False,
+        resume_text="B.Tech 2027",
+        seniority="fresher",
+        experience_months=4,
+        skills=["react"],
+        domain="tech",
+    )
+    post = "Onsite in Berlin. Visa sponsorship available."
+    assert discovery.eligibility_gap(stay, post) is not None

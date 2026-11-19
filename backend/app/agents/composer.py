@@ -292,7 +292,7 @@ def compose(
         country=getattr(profile, "country", "") or "not stated",
         work_authorization=getattr(profile, "work_authorization", "") or "not stated",
         graduation_year=getattr(profile, "graduation_year", 0) or "not stated",
-        relocate="yes" if getattr(profile, "willing_to_relocate", True) else "no",
+        relocate="yes" if getattr(profile, "willing_to_relocate", True) is not False else "no",
         author=post.author_handle,
         company=post.company or "",
         role=post.role or "",

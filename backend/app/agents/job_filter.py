@@ -41,6 +41,10 @@ level: {seniority} ({experience})
 domain: {domain}
 skills: {skills}
 looking for: {targets}
+country: {country}
+work authorization: {work_authorization}
+graduation year: {graduation_year}
+willing to relocate: {relocate}
 
 POSTS
 {posts}
@@ -51,7 +55,10 @@ Return JSON exactly in this shape:
     {{"id": 123, "match": true, "fit": 0, "reason": "one short line"}}
   ]
 }}
-fit is 0-100: how well the candidate's real skills match this post."""
+fit is 0-100: how well the candidate's real skills match this post.
+Reject (match=false) when the candidate cannot legally take the role (work
+authorization, clearance), when a graduation batch does not match, or when the
+role is senior and the candidate is early-career."""
 
 
 def _profile(db: Session, user_id: int | None) -> Profile | None:
@@ -101,6 +108,14 @@ def _prompt_for(profile: Profile | None, jobs: list[JobPost]) -> str:
         "targets": ", ".join(
             ((profile.target_roles if profile else []) or [])[:8]
         ),
+        "country": (getattr(profile, "country", "") if profile else "") or "not stated",
+        "work_authorization": (getattr(profile, "work_authorization", "") if profile else "")
+        or "not stated",
+        "graduation_year": (getattr(profile, "graduation_year", 0) if profile else 0)
+        or "not stated",
+        "relocate": "yes"
+        if (getattr(profile, "willing_to_relocate", True) is not False)
+        else "no",
     }
     lines = []
     for job in jobs:
