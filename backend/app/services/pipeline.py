@@ -1629,8 +1629,12 @@ def check_apply_links(
 
     checked = 0
     dead = 0
+    profile = get_profile(db, user_id)
+    max_experience = profile.experience_months if profile is not None else None
     for job in db.scalars(stmt).all():
-        ok, reason = link_check.check(job.apply_url)
+        ok, reason = link_check.check(
+            job.apply_url, max_experience_months=max_experience
+        )
         job.link_checked_at = _now()
         checked += 1
         if not ok:
