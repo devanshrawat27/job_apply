@@ -698,6 +698,30 @@ _GRAD_YEAR_RE = re.compile(
 )
 
 
+_REMOTE_RE = re.compile(
+    r"\b(remote|work from home|wfh|anywhere|distributed team|remote[- ]first|fully remote)\b",
+    re.I,
+)
+_INDIA_RE = re.compile(
+    r"\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|noida|gurgaon|gurugram|"
+    r"chennai|kolkata|ahmedabad|jaipur|indore|kochi|trivandrum)\b",
+    re.I,
+)
+_FOREIGN_ONSITE_RE = re.compile(
+    r"(?:must be (?:based|located|residing) in|onsite in|on-site in|in[- ]office in|"
+    r"hybrid in|only (?:candidates|applicants) (?:based )?in)\s*[:\-]?\s*"
+    r"(?:the )?(us|usa|united states|uk|united kingdom|london|canada|toronto|vancouver|"
+    r"germany|berlin|netherlands|amsterdam|france|paris|ireland|dublin|poland|warsaw|"
+    r"uae|dubai|abu dhabi|singapore|australia|sydney|melbourne|japan|tokyo)\b",
+    re.I,
+)
+_SPONSOR_RE = re.compile(
+    r"\b(visa sponsorship|sponsorship (?:is )?available|we (?:do )?sponsor|will sponsor|"
+    r"relocation (?:support|assistance|provided)|relocation package)\b",
+    re.I,
+)
+
+
 def eligibility_gap(profile: Profile, text: str) -> str | None:
     """Hard eligibility gate: reject before drafting when the candidate cannot qualify.
 
@@ -717,6 +741,17 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
         if not location:
             return "needs US work authorization or clearance, and the profile has no location"
         return "needs US work authorization or clearance, which the profile does not have"
+
+    # On-site roles abroad need visa sponsorship. Remote roles are exempt: the
+    # candidate can work from anywhere, so location alone must not reject them.
+    remote = bool(_REMOTE_RE.search(body))
+    if not remote and _INDIA_RE.search(location):
+        abroad = _FOREIGN_ONSITE_RE.search(body)
+        if abroad and not _SPONSOR_RE.search(body):
+            return (
+                f"on-site role in {abroad.group(1)} with no visa sponsorship, "
+                "and the candidate is in India"
+            )
 
     student_required = _STUDENT_ONLY_RE.search(body)
     if student_required:

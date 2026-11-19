@@ -46,3 +46,24 @@ def test_student_only_role_needs_a_matching_graduation_year():
 
 def test_normal_job_has_no_eligibility_gap():
     assert discovery.eligibility_gap(INDIA, "We are hiring a React developer. DM me.") is None
+
+
+def test_onsite_abroad_without_sponsorship_is_rejected_for_india_candidate():
+    text = "Onsite in Berlin, Germany. Full stack developer, 1+ years."
+    assert discovery.eligibility_gap(INDIA, text) is not None
+    assert discovery.eligibility_gap(INDIA, text + " Visa sponsorship available.") is None
+
+
+def test_remote_roles_are_never_rejected_for_location():
+    text = "Remote full stack developer. Work from anywhere. 1+ years."
+    assert discovery.eligibility_gap(INDIA, text) is None
+    # Remote wins even when the post names an office somewhere else.
+    assert (
+        discovery.eligibility_gap(INDIA, "Remote role. Our office is in Berlin, Germany.")
+        is None
+    )
+
+
+def test_remote_still_respects_legal_work_authorization():
+    text = "Remote role. Must be authorized to work in the US."
+    assert discovery.eligibility_gap(INDIA, text) is not None
