@@ -843,7 +843,11 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
 
 
 def looks_like_job_post(text: str) -> bool:
-    lowered = (text or "").lower()
+    import unicodedata
+
+    # X posts often use bold Unicode letters ("𝗔𝗽𝗽𝗹𝘆 𝗵𝗲𝗿𝗲"), which would hide
+    # the apply signal. NFKC turns them back into plain letters.
+    lowered = unicodedata.normalize("NFKC", text or "").lower()
     if len(lowered) < 40:
         return False
     if job_seeker_reason(text):
@@ -875,10 +879,36 @@ def looks_like_job_post(text: str) -> bool:
     )
 
     has_intent = any(phrase in lowered for phrase in intent_phrases)
-    has_role = any(word in lowered for word in role_words)
-    has_apply = any(word in lowered for word in apply_words)
+    has_role = any(
+        re.search(rf"\b{re.escape(word)}s?\b", lowered) is not None for word in role_words
+    )
+    has_apply = any(
+        re.search(rf"\b{re.escape(word)}\b", lowered) is not None for word in apply_words
+    )
+    first_person = any(
+        phrase in lowered
+        for phrase in (
+            "we are hiring",
+            "we're hiring",
+            "i'm hiring",
+            "i am hiring",
+            "join our team",
+            "join my team",
+            "our team is hiring",
+            "we are looking for",
+            "we're looking for",
+            "hiring for my team",
+        )
+    )
 
     if not has_intent or not (has_role or has_apply):
+        return False
+
+    # A post that only reports that some company is hiring (news, commentary,
+    # course ads) is not an application unless it also carries a link or an
+    # apply instruction.
+    has_link = "http://" in lowered or "https://" in lowered
+    if not has_apply and not first_person and not has_link:
         return False
 
     # Explicit commentary / resource posts.
@@ -887,7 +917,11 @@ def looks_like_job_post(text: str) -> bool:
         "people still spend", "hot take", "unpopular opinion", "thoughts?",
         "what do you think", "commentary", "opinion piece", "sharing a resource",
         "repos in order", "here's how", "thread:", "🧵", "announcement:",
-        "hiring test", "prompt engineering course",
+        "hiring test", "prompt engineering course", "free course",
+        "course on github", "quietly dropped", "just dropped", "lessons",
+        "tutorial", "cheat sheet", "study guide", "github repo", "reportedly",
+        "according to", "announced", "plans to hire", "resume tips",
+        "test chip", "musk is hiring",
     )
     if any(marker in lowered for marker in commentary) and not has_apply:
         return False

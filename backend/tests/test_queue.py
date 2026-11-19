@@ -47,6 +47,27 @@ def test_candidate_pitches_are_not_hiring_posts(text, expected):
     assert discovery.looks_like_job_post(text) is (expected == "")
 
 
+def test_bold_unicode_and_course_posts():
+    bold = (
+        "Apple is Hiring Junior Fullstack Engineers (0-2 Yrs)\n"
+        "𝗔𝗽𝗽𝗹𝘆 𝗵𝗲𝗿𝗲 https://tinyurl.com/abc #hiring"
+    )
+    assert discovery.looks_like_job_post(bold)
+
+    course = (
+        "Microsoft quietly dropped one of the CLEANEST FREE AI agent courses on GitHub. "
+        "Building AI agents is the skill companies are hiring for right now. 18 lessons. "
+        "Real code. Design patterns. Tool use. Agentic RAG. Multi-agent systems."
+    )
+    assert not discovery.looks_like_job_post(course)
+
+    news = (
+        "terafab's first test chip is targeted for around june 2027, and musk is hiring "
+        "engineers for it right now. the full texas site is planned at 100 million square feet."
+    )
+    assert not discovery.looks_like_job_post(news)
+
+
 def test_old_queued_posts_expire_and_fresh_ones_stay():
     db = SessionLocal()
     now = datetime.now(timezone.utc)
