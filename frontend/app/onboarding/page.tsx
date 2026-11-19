@@ -319,7 +319,24 @@ export default function OnboardingPage() {
                 </Badge>
               </div>
 
+              <p className="text-[11px] text-muted-foreground">
+                From your resume:{' '}
+                <span className="text-foreground">{profile.job_title || 'no title found'}</span>
+                {profile.experience_months
+                  ? ` · ${profile.experience_months} months experience`
+                  : ''}
+                {profile.skills.length ? ` · ${profile.skills.length} skills` : ''}
+              </p>
+
               <div className="flex flex-wrap gap-1.5">
+                {roles[0] && !JOB_TITLES.includes(roles[0]) ? (
+                  <RoleChip
+                    label={roles[0]}
+                    active
+                    badge="from resume"
+                    onClick={() => toggleRole(roles[0])}
+                  />
+                ) : null}
                 {JOB_TITLES.map((title) => (
                   <RoleChip
                     key={title}
@@ -358,7 +375,7 @@ export default function OnboardingPage() {
             )}
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Experience level" hint="Only two buckets: fresher or experienced.">
+              <Field label="Experience level" hint="Detected from your resume — change only if it is wrong.">
                 <select
                   value={profile.seniority || 'fresher'}
                   onChange={(e) => patchProfile({ seniority: e.target.value })}
@@ -369,7 +386,7 @@ export default function OnboardingPage() {
                 </select>
               </Field>
 
-              <Field label="Resume type" hint="Non-tech resumes never get engineering searches.">
+              <Field label="Resume type" hint="Detected from your resume.">
                 <select
                   value={profile.domain || 'tech'}
                   onChange={(e) => patchProfile({ domain: e.target.value as Profile['domain'] })}

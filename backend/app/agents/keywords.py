@@ -140,6 +140,19 @@ SENIOR_ROLE_TITLES = (
     '"principal engineer"',
 )
 
+# Junior titles must not burn scans for someone with real experience.
+JUNIOR_KEYWORD_SIGNALS = (
+    "intern",
+    "internship",
+    "junior",
+    "entry level",
+    "entry-level",
+    "fresher",
+    "trainee",
+    "graduate engineer",
+    "student",
+)
+
 STARTUP_SIGNALS = (
     "startup",
     '"early stage"',

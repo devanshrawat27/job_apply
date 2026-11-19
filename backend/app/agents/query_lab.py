@@ -157,11 +157,15 @@ def is_junior_profile(profile: Profile) -> bool:
 
 
 def keyword_fits_profile(keyword: str, profile: Profile) -> bool:
-    """Senior-level keywords are skipped for junior candidates."""
-    if not is_junior_profile(profile):
-        return True
+    """Skip keywords that clash with the candidate's real level.
+
+    A fresher never gets "founding engineer" style keywords, and someone with
+    years of experience never burns scans on "sde intern" / "junior developer".
+    """
     lowered = (keyword or "").lower().strip()
-    return not any(signal in lowered for signal in SENIOR_KEYWORD_SIGNALS)
+    if is_junior_profile(profile):
+        return not any(signal in lowered for signal in SENIOR_KEYWORD_SIGNALS)
+    return not any(signal in lowered for signal in keyword_sets.JUNIOR_KEYWORD_SIGNALS)
 
 
 def keyword_pool(profile: Profile) -> tuple[str, ...]:
@@ -243,17 +247,25 @@ def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -
     known = {row.keyword.lower() for row in rows}
     junior = is_junior_profile(profile)
 
-    # A fresher profile should never burn scans on "founding engineer" style
-    # keywords. Retire them once, then they stay out of the candidate list.
-    if junior:
-        for row in rows:
-            if row.status in ("active", "candidate") and not keyword_fits_profile(row.keyword, profile):
-                row.status = "retired"
-                logger.info("retiring senior keyword %r for a junior profile", row.keyword)
-        db.flush()
+    # A fresher never burns scans on "founding engineer" style keywords, and
+    # someone with real experience never burns them on "sde intern" style ones.
+    for row in rows:
+        if row.status not in ("active", "candidate") or row.pinned:
+            continue
+        if (row.source or "") == "seed":
+            # Roles taken from the resume / the human are always respected.
+            continue
+        if not keyword_fits_profile(row.keyword, profile):
+            row.status = "retired"
+            logger.info("retiring %r: it does not match the profile level", row.keyword)
+    db.flush()
 
+    chosen_roles = {role.lower() for role in selected_roles(profile)}
     for keyword in seed_keywords(profile):
-        if keyword.lower() not in known and keyword_fits_profile(keyword, profile):
+        if keyword.lower() in known:
+            continue
+        # A role the resume itself names is never filtered out.
+        if keyword.lower() in chosen_roles or keyword_fits_profile(keyword, profile):
             _add(db, rows, known, keyword, user_id, source="seed")
 
     # Make sure the curated roles exist as candidates so the exploration slot
