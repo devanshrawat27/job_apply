@@ -273,6 +273,16 @@ class AgentLoop(threading.Thread):
                 logger.warning("fit screen failed for user %s", user_id, exc_info=True)
                 db.rollback()
 
+        # 2c. Jobs held because no model was available get a real draft now.
+        if queued < MAX_QUEUE_BEFORE_PAUSE:
+            try:
+                redrafted = pipeline.redraft_waiting(db, user_id)
+                if redrafted:
+                    logger.info("user %s redrafted %s held jobs", user_id, redrafted)
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("redraft pass failed for user %s", user_id, exc_info=True)
+                db.rollback()
+
         # 3. Scanning runs on its own schedule and is never starved by the queue.
         interval = max(1, settings_row.scan_interval_minutes)
         last = self._last_scan.get(user_id)

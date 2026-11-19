@@ -11,7 +11,7 @@ import re
 import threading
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.agents import composer, discovery, query_lab, spam as spam_guard
@@ -113,6 +113,8 @@ def _log(job: JobPost, message: str) -> None:
 # keyword searches instead of hammering and making the limit worse.
 _SEARCH_PAUSE: dict[int | None, datetime] = {}
 SEARCH_PAUSE_MINUTES = 45
+# Jobs held because no model was available at scan time.
+DRAFT_WAIT_MINUTES = 20
 
 
 # ---------------------------------------------------------------------- scan
@@ -487,6 +489,19 @@ def scan(
             job.uncertainties = draft["uncertainties"]
             job.generic_draft = bool(draft.get("generic"))
 
+            if draft.get("template"):
+                # No model was available, so this draft is a generic template.
+                # Never park that in Approvals: hold the job and try again once
+                # the model is back.
+                job.status = "draft_wait"
+                job.reply_text = ""
+                job.dm_text = ""
+                job.confidence = 0.0
+                job.decision_reason = "waiting for the AI to write a real draft"
+                job.next_retry_at = (_now() + timedelta(minutes=20)).replace(tzinfo=None)
+                _log(job, "no AI available - draft postponed")
+                continue
+
             if draft.get("eligible") is False:
                 reason = (
                     str(draft.get("eligibility_reason") or "").strip()
@@ -681,6 +696,100 @@ def send_batch(
         return _send_batch(
             db, job_ids=job_ids, limit=limit, run=run, user_id=user_id, force=force
         )
+
+
+def redraft_waiting(db: Session, user_id: int | None, limit: int = 3) -> int:
+    """Re-draft held jobs once an AI model is available again.
+
+    Jobs land in ``draft_wait`` when the model was unavailable at scan time.
+    They are never shown in Approvals with a generic template draft.
+    """
+    settings_row = get_settings_row(db, user_id)
+    providers = llm_providers(db, user_id)
+    browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(user_id)
+    if not (providers or settings.llm_enabled or browser):
+        return 0
+    profile = get_profile(db, user_id)
+    if profile is None:
+        return 0
+
+    now = _now()
+    naive_now = now.replace(tzinfo=None)
+    stmt = (
+        select(JobPost)
+        .where(
+            JobPost.status == "draft_wait",
+            or_(JobPost.next_retry_at.is_(None), JobPost.next_retry_at <= naive_now),
+        )
+        .order_by(JobPost.id)
+        .limit(limit)
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+    jobs = list(db.scalars(stmt).all())
+    if not jobs:
+        return 0
+
+    examples_stmt = select(DraftExample).order_by(DraftExample.id.desc()).limit(3)
+    if user_id is not None:
+        examples_stmt = examples_stmt.where(DraftExample.user_id == user_id)
+    examples = list(db.scalars(examples_stmt).all())
+
+    done = 0
+    for job in jobs:
+        try:
+            draft = composer.compose(
+                profile,
+                job,
+                examples,
+                budget_s=90,
+                providers=providers,
+                browser_fallback=browser,
+                browser_user_id=user_id,
+            )
+        except Exception:  # noqa: BLE001 - retry later
+            logger.warning("redraft failed for job %s", job.id, exc_info=True)
+            job.next_retry_at = (now + timedelta(minutes=DRAFT_WAIT_MINUTES)).replace(tzinfo=None)
+            db.commit()
+            continue
+
+        if draft.get("template"):
+            job.next_retry_at = (now + timedelta(minutes=DRAFT_WAIT_MINUTES)).replace(tzinfo=None)
+            db.commit()
+            continue
+
+        job.reply_text = draft["reply_text"]
+        job.dm_text = draft["dm_text"]
+        job.confidence = float(draft["confidence"])
+        job.uncertainties = draft["uncertainties"]
+        job.generic_draft = bool(draft.get("generic"))
+        job.next_retry_at = None
+
+        if draft.get("eligible") is False:
+            job.status = "rejected"
+            job.decision_reason = (
+                "not eligible: "
+                + (str(draft.get("eligibility_reason") or "").strip() or "candidate does not qualify")
+            )
+        elif composer.auto_reject_reason(draft.get("uncertainties")):
+            job.status = "rejected"
+            job.decision_reason = "not a fit per the model - rejected"
+        elif float(draft["confidence"]) >= settings_row.auto_send_confidence:
+            job.status = "queued"
+            job.decision_reason = (
+                f"confident match (relevance {job.relevance}, "
+                f"confidence {job.confidence:.2f}) - queued to send"
+            )
+        else:
+            job.status = "pending_approval"
+            job.decision_reason = (
+                f"confidence {job.confidence:.2f} < "
+                f"{settings_row.auto_send_confidence:.2f} - waiting for approval"
+            )
+        _log(job, job.decision_reason)
+        db.commit()
+        done += 1
+    return done
 
 
 def _expire_queued(db: Session, user_id: int | None, hours: int = 24) -> int:

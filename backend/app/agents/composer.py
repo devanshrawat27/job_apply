@@ -213,6 +213,7 @@ def _fallback(profile: Profile, post: JobPost) -> dict:
         "used_detail": f"{role}" if not company else f"{role} at {company}",
         "confidence": 0.35,
         "uncertainties": ["template draft (LLM unavailable) - please review"],
+        "template": True,
     }
 
 

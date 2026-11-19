@@ -43,6 +43,7 @@ const STATUS: Record<
   sent: { label: 'Sent', variant: 'success' },
   failed: { label: 'Failed', variant: 'destructive' },
   skipped: { label: 'Skipped', variant: 'outline' },
+  draft_wait: { label: 'Drafting', variant: 'info' },
 }
 
 const METHOD: Record<string, { label: string; icon: typeof SendIcon }> = {

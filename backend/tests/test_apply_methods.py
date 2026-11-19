@@ -152,7 +152,9 @@ def _raw(post_id: str, content: str) -> dict:
     }
 
 
-def _scan_with(db, monkeypatch, content: str):
+def _scan_with(db, monkeypatch, content: str, draft: dict | None = None):
+    if draft is not None:
+        monkeypatch.setattr(composer, "compose", lambda *args, **kwargs: draft)
     monkeypatch.setattr(
         executor,
         "run_script",
@@ -172,6 +174,12 @@ def test_email_post_is_routed_to_approval_when_smtp_missing(db, monkeypatch):
         monkeypatch,
         "We're hiring a Python backend engineer. Python, FastAPI. "
         "Mail your resume to jobs@acme.com.",
+        draft={
+            "reply_text": "Acme's FastAPI stack is exactly what I ship.",
+            "dm_text": "Saw Acme is hiring a Python backend engineer.",
+            "confidence": 0.4,
+            "uncertainties": [],
+        },
     )
     assert job.outreach_method == "email"
     assert job.contact_email == "jobs@acme.com"
@@ -215,6 +223,12 @@ def test_dm_post_still_auto_queues(db, monkeypatch):
         db,
         monkeypatch,
         "We're hiring a Python backend engineer. Python, FastAPI, Node. DM me if interested.",
+        draft={
+            "reply_text": "Acme's FastAPI stack is exactly what I ship.",
+            "dm_text": "Saw Acme is hiring a Python backend engineer.",
+            "confidence": 0.4,
+            "uncertainties": [],
+        },
     )
     assert job.outreach_method == "dm"
     # Without an LLM the template confidence is low, so it waits for approval.
@@ -254,6 +268,12 @@ def test_outreach_timeline_records_content_and_target(db, monkeypatch):
         db,
         monkeypatch,
         "We're hiring a Python backend engineer. Python, FastAPI. DM me if interested.",
+        draft={
+            "reply_text": "Acme's FastAPI stack is exactly what I ship.",
+            "dm_text": "Saw Acme is hiring a Python backend engineer.",
+            "confidence": 0.4,
+            "uncertainties": [],
+        },
     )
     job.status = "queued"
     db.commit()

@@ -101,11 +101,10 @@ def test_scan_filters_and_drafts(db, monkeypatch):
     assert job is not None
     assert job.post_id == "111"
     assert job.relevance >= 60
-    assert job.reply_text
-    assert job.dm_text
-    # Offline template has confidence 0.35 -> always needs a human.
-    assert job.status == "pending_approval"
-    assert job.confidence < 0.8
+    # No AI is configured in tests, so the job is held for a real draft instead
+    # of showing a generic template in Approvals.
+    assert job.status == "draft_wait"
+    assert not job.reply_text and not job.dm_text
 
 
 def test_auto_send_when_confident(db, monkeypatch):

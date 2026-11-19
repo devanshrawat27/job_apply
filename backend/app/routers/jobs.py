@@ -25,6 +25,7 @@ VALID_STATUSES = {
     "sent",
     "failed",
     "skipped",
+    "draft_wait",
 }
 
 
