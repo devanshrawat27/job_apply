@@ -356,19 +356,24 @@ def scan(
             reported = {str(handle).lstrip("@").lower() for handle in (settings_row.reported_handles or [])}
             if job.author_handle.lstrip("@").lower() in reported:
                 job.status = "rejected"
+                job.decision_reason = "you reported this account as fake"
                 stats["rejected"] += 1
                 _log(job, "you reported this account as fake - skipped")
                 continue
 
             if job.spam_score >= spam_guard.REJECT_THRESHOLD:
                 job.status = "rejected"
+                job.decision_reason = (
+                    f"fake-post score {job.spam_score}/100: " + "; ".join(job.spam_reasons[:3])
+                )
                 stats["rejected"] += 1
-                _log(job, f"fake-post score {job.spam_score}/100: " + "; ".join(job.spam_reasons[:3]))
+                _log(job, job.decision_reason)
                 continue
 
             avoid = discovery.matches_avoid(profile, job.content)
             if avoid:
                 job.status = "rejected"
+                job.decision_reason = f"you marked '{avoid}' as not a fit"
                 stats["rejected"] += 1
                 _log(job, f"you marked '{avoid}' as not a fit - skipped")
                 continue
@@ -376,6 +381,9 @@ def scan(
             mismatch = discovery.domain_mismatch(profile, job.content)
             if mismatch:
                 job.status = "rejected"
+                job.decision_reason = (
+                    f"{mismatch} (your resume is {(profile.domain or 'tech')})"
+                )
                 stats["rejected"] += 1
                 _log(job, f"{mismatch} (your resume is {(profile.domain or 'tech')}) - skipped")
                 continue
@@ -383,12 +391,16 @@ def scan(
             gap = _experience_gap(profile, job)
             if gap:
                 job.status = "rejected"
+                job.decision_reason = gap
                 stats["rejected"] += 1
                 _log(job, gap)
                 continue
 
             if job.relevance < settings_row.relevance_threshold:
                 job.status = "rejected"
+                job.decision_reason = (
+                    f"relevance {job.relevance} < {settings_row.relevance_threshold}"
+                )
                 stats["rejected"] += 1
                 _log(job, f"relevance {job.relevance} < {settings_row.relevance_threshold} - skipped")
                 continue
