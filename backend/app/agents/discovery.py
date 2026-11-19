@@ -359,6 +359,7 @@ _NON_TECH_SIGNALS = (
     "teacher", "nurse", "security guard", "civil engineer", "mechanical engineer",
     "video editor", "video editing", "shorts editor", "motion designer",
     "content creator", "thumbnail designer", "voiceover", "voice over",
+    "compliance", "legal counsel", "audit", "risk management", "underwriting",
 )
 
 # Unambiguous non-tech role titles. These reject even when the post also
@@ -743,7 +744,9 @@ _SPONSOR_RE = re.compile(
 
 _SENIOR_TITLE_RE = re.compile(
     r"\b(senior|sr\.?|staff|principal|lead|head of|director|vp|chief)\b"
-    r"[^.\n]{0,40}\b(engineer|developer|scientist|architect|manager|analyst)\b",
+    r"[^.\n]{0,40}\b(engineer|developer|scientist|architect|manager|analyst|consultant|"
+    r"specialist|designer|recruiter|compliance|legal|counsel|audit|risk|product|sales|"
+    r"marketing|operations|finance|security|data|content|officer)\b",
     re.I,
 )
 _DISCIPLINE_RE = re.compile(

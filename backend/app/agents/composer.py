@@ -416,6 +416,7 @@ def auto_reject_reason(uncertainties: list[str] | None) -> str:
         "mismatch in job function",
         "not a software",
         "non-tech role",
+        "non-technical",
         "civil",
         "public works",
         "different engineering",

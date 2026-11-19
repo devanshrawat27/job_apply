@@ -105,6 +105,14 @@ def test_senior_titles_are_rejected_for_early_career_profiles():
     assert discovery.eligibility_gap(EXPERIENCED, post) is None
 
 
+def test_senior_non_technical_titles_are_rejected():
+    post = (
+        "Hiring: Senior Compliance Lead - OKX | On-site (United States). "
+        "OKX is a leading crypto exchange and developer of OKX Wallet."
+    )
+    assert discovery.eligibility_gap(JUNIOR, post) is not None
+
+
 def test_non_software_engineering_roles_are_rejected():
     assert (
         discovery.eligibility_gap(
