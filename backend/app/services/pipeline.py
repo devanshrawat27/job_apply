@@ -418,6 +418,14 @@ def scan(
                 _log(job, gap)
                 continue
 
+            eligibility = discovery.eligibility_gap(profile, job.content)
+            if eligibility:
+                job.status = "rejected"
+                job.decision_reason = eligibility
+                stats["rejected"] += 1
+                _log(job, eligibility)
+                continue
+
             if job.relevance < settings_row.relevance_threshold:
                 job.status = "rejected"
                 job.decision_reason = (
@@ -995,6 +1003,17 @@ def _send_one(
         return {}
 
     profile = get_profile(db, job.user_id)
+
+    # Defensive: an old queued row that the candidate cannot qualify for.
+    if profile is not None:
+        eligibility = discovery.eligibility_gap(profile, job.content or "")
+        if eligibility:
+            job.status = "rejected"
+            job.reply_text = ""
+            job.dm_text = ""
+            job.decision_reason = eligibility
+            _log(job, f"{eligibility} - nothing sent")
+            return {}
 
     # ---- email application -------------------------------------------
     if method == "email":

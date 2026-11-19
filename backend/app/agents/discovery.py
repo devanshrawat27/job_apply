@@ -673,6 +673,65 @@ def job_seeker_reason(text: str) -> str:
     return ""
 
 
+_US_ONLY_RE = re.compile(
+    r"\b(?:us|u\.s\.) (?:citizen|citizenship|work authorization|work permit)|"
+    r"\bcitizenship (?:is )?required\b|\bmust be (?:a )?(?:us|u\.s\.) citizen\b|"
+    r"\bsecurity clearance\b|\bts/sci\b|\btop secret\b|\bpublic trust\b|"
+    r"\bgreen card\b|\bgc holder\b|\b(?:authorized|eligible) to work in the (?:us|united states)\b|"
+    r"\bno (?:visa )?sponsorship\b|\bunable to sponsor\b|\bcannot sponsor\b|"
+    r"\bus work authorization\b",
+    re.I,
+)
+_US_LOCATION_RE = re.compile(
+    r"\b(?:united states|usa|u\.s\.|new york|california|texas|seattle|austin|boston|"
+    r"chicago|san francisco|bay area|remote \(us\)|us remote)\b",
+    re.I,
+)
+_STUDENT_ONLY_RE = re.compile(
+    r"\b(?:currently (?:pursuing|enrolled)|final[- ]year|must be (?:a )?student|"
+    r"pursuing (?:a |an )?(?:bachelor|master|phd)|"
+    r"graduating (?:in )?20\d\d|20\d\d (?:batch|graduates|passouts?))\b",
+    re.I,
+)
+_GRAD_YEAR_RE = re.compile(
+    r"(?:graduat\w*|batch|passout|pass out|expected)[^0-9]{0,20}(20\d\d)", re.I
+)
+
+
+def eligibility_gap(profile: Profile, text: str) -> str | None:
+    """Hard eligibility gate: reject before drafting when the candidate cannot qualify.
+
+    Location is not a general filter (the candidate can move), but an explicit
+    work-authorization, clearance or student-only requirement is checked against
+    the resume. When the needed fact is unknown, the post is rejected instead of
+    being parked in Approvals.
+    """
+    body = text or ""
+    resume = (profile.resume_text or "").lower()
+    location = (profile.location or "").strip().lower()
+
+    authorised_us = bool(_US_LOCATION_RE.search(location)) or "authorized to work in the us" in resume
+    authorised_us = authorised_us or "us citizen" in resume or "green card" in resume
+
+    if _US_ONLY_RE.search(body) and not authorised_us:
+        if not location:
+            return "needs US work authorization or clearance, and the profile has no location"
+        return "needs US work authorization or clearance, which the profile does not have"
+
+    student_required = _STUDENT_ONLY_RE.search(body)
+    if student_required:
+        graduation = _GRAD_YEAR_RE.search(resume)
+        if graduation is None:
+            return "student/graduation requirement, and the resume has no graduation year"
+        years = re.findall(r"20\d\d", body)
+        if years and graduation.group(1) not in years:
+            return (
+                f"requires the {years[0]} batch, the resume says {graduation.group(1)}"
+            )
+
+    return None
+
+
 def looks_like_job_post(text: str) -> bool:
     lowered = (text or "").lower()
     if len(lowered) < 40:
