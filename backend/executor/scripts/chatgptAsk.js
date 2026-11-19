@@ -126,6 +126,22 @@ async function waitForAnswer(page, timeoutMs, priorCount, priorText) {
   return lastText
 }
 
+async function recoverFullContext(page) {
+  const body = await page.locator('body').innerText().catch(() => '')
+  if (!/context window (?:is )?full|start a new chat with an automatic summary/i.test(body)) {
+    return false
+  }
+  // ChatGPT offers a new chat with an automatic summary of this conversation.
+  // Clicking it keeps the context while freeing the window.
+  const button = page.getByRole('button', { name: 'New chat', exact: true }).last()
+  if ((await button.count().catch(() => 0)) > 0) {
+    await button.click({ timeout: 8000 }).catch(() => {})
+    await page.waitForTimeout(4500)
+    return true
+  }
+  return false
+}
+
 async function openTarget(page) {
   const target = THREAD_URL || PROJECT_URL || 'https://chatgpt.com/'
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 })
@@ -139,6 +155,13 @@ async function openTarget(page) {
     return false
   }
   markConnected()
+
+  // A long-running thread eventually fills ChatGPT's context window. Start the
+  // new chat it offers (with the automatic summary) and keep going, instead of
+  // failing every task until the human clicks it by hand.
+  if (THREAD_URL) {
+    await recoverFullContext(page)
+  }
 
   if ((await page.locator(CHATGPT_COMPOSER).count().catch(() => 0)) > 0) return true
 

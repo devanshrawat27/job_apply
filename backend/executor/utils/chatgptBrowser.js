@@ -49,6 +49,7 @@ export async function launchChatgpt({ headless } = {}) {
     headless: headless ?? config.headless,
     args: LAUNCH_ARGS,
     ignoreDefaultArgs: ['--enable-automation'],
+    chromiumSandbox: true,
     locale: config.locale,
     timezoneId: config.timezone,
     viewport: { width: 1280, height: 900 },
