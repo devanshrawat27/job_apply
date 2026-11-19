@@ -64,6 +64,18 @@ def test_remote_roles_are_never_rejected_for_location():
     )
 
 
+def test_graduation_year_is_read_from_common_resume_formats():
+    ranged = Profile(
+        location="Dehradun, India",
+        resume_text="Education | Graphic Era Hill University Aug 2023 – May 2027 | B.Tech in CSE",
+        skills=["react"],
+        domain="tech",
+    )
+    assert discovery.graduation_year(ranged.resume_text) == "2027"
+    assert discovery.eligibility_gap(ranged, "Eligibility: 2027 Batch Preferred") is None
+    assert discovery.eligibility_gap(ranged, "2026 graduates only") is not None
+
+
 def test_remote_still_respects_legal_work_authorization():
     text = "Remote role. Must be authorized to work in the US."
     assert discovery.eligibility_gap(INDIA, text) is not None

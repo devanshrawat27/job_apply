@@ -694,8 +694,25 @@ _STUDENT_ONLY_RE = re.compile(
     re.I,
 )
 _GRAD_YEAR_RE = re.compile(
-    r"(?:graduat\w*|batch|passout|pass out|expected)[^0-9]{0,20}(20\d\d)", re.I
+    r"(?:graduat\w*|batch|passout|pass out|expected|class of|passing year|b\.?tech|b\.?e\.?|bachelor)"
+    r"[^0-9\n]{0,40}(20\d\d)",
+    re.I,
 )
+_GRAD_RANGE_RE = re.compile(
+    r"(?:19|20)\d{2}\s*[-–—]\s*(?:[a-z]{3,9}\.?\s*)?(20\d\d)", re.I
+)
+
+
+def graduation_year(resume: str) -> str:
+    """The graduation year, from common resume formats ("May 2027", "2023-2027")."""
+    text = resume or ""
+    match = _GRAD_YEAR_RE.search(text)
+    if match:
+        return match.group(1)
+    match = _GRAD_RANGE_RE.search(text)
+    if match:
+        return match.group(1)
+    return ""
 
 
 _REMOTE_RE = re.compile(
@@ -755,14 +772,12 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
 
     student_required = _STUDENT_ONLY_RE.search(body)
     if student_required:
-        graduation = _GRAD_YEAR_RE.search(resume)
-        if graduation is None:
+        graduation = graduation_year(resume)
+        if not graduation:
             return "student/graduation requirement, and the resume has no graduation year"
         years = re.findall(r"20\d\d", body)
-        if years and graduation.group(1) not in years:
-            return (
-                f"requires the {years[0]} batch, the resume says {graduation.group(1)}"
-            )
+        if years and graduation not in years:
+            return f"requires the {years[0]} batch, the resume says {graduation}"
 
     return None
 
