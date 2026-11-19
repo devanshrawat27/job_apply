@@ -240,6 +240,15 @@ export interface ChatThread {
   last_used_at: string | null
 }
 
+export interface PeopleFinderResult {
+  company: string
+  role: string
+  queries: string[]
+  links: { label: string; query: string; url: string }[]
+  message: string
+  generated: boolean
+}
+
 export interface InsightPayload {
   keyword_verdicts: { keyword: string; verdict: string; why: string }[]
   new_keywords: { keyword: string; why: string }[]

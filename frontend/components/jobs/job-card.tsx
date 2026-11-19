@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/input'
 import { EmailPreview } from '@/components/jobs/email-preview'
+import { PeopleFinder } from '@/components/jobs/people-finder'
 import { PostBody, isLongPost } from '@/components/jobs/post-body'
 import { api } from '@/lib/api'
 import type { Job } from '@/lib/types'
@@ -309,6 +310,8 @@ export function JobCard({
             }}
           />
         ) : null}
+
+        {job.outreach_method === 'link' ? <PeopleFinder job={job} /> : null}
 
         {/* drafts */}
         {job.outreach_method !== 'email' && (job.reply_text || job.dm_text) ? (

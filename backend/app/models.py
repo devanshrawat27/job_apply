@@ -201,6 +201,11 @@ class JobPost(Base):
     # from the Apply links list so the human never wastes a click.
     link_dead: Mapped[bool] = mapped_column(Boolean, default=False)
     link_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # LinkedIn people-search queries and a short DM for the recruiter/hiring
+    # manager, generated for apply-link posts.
+    people_queries: Mapped[list] = mapped_column(JSON, default=list)
+    linkedin_message: Mapped[str] = mapped_column(Text, default="")
+    people_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Plain-language reason shown to the human when the agent stops.
     decision_reason: Mapped[str] = mapped_column(Text, default="")
     # person | company | job_board

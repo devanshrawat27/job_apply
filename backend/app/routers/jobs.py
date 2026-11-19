@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 import threading
 from datetime import datetime, timezone
 
-from app.agents import composer, job_filter
+from app.agents import composer, job_filter, people
 from app.database import SessionLocal, get_db
 from app.deps import CurrentUser
 from app.llm import LLMUnavailable
@@ -333,6 +333,38 @@ class EmailDraftIn(BaseModel):
 
 class JobResumeIn(BaseModel):
     resume_id: int
+
+
+@router.get("/{job_id}/people")
+def job_people(job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
+    """Recruiter/HR LinkedIn searches for an apply-link job (or the fallback)."""
+    job = _owned(db, job_id, user)
+    return people.stored(job)
+
+
+@router.post("/{job_id}/people")
+def find_job_people(
+    job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)
+) -> dict:
+    """Ask the model for targeted LinkedIn searches and a short DM."""
+    job = _owned(db, job_id, user)
+    profile = pipeline.get_profile(db, job.user_id)
+    settings_row = pipeline.get_settings_row(db, job.user_id)
+    providers = pipeline.llm_providers(db, job.user_id)
+    use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(
+        job.user_id
+    )
+    try:
+        return people.generate(
+            db,
+            job,
+            profile,
+            job.user_id,
+            providers=providers,
+            browser=use_browser,
+        )
+    except Exception as exc:  # noqa: BLE001 - the fallback queries still work
+        raise HTTPException(status_code=502, detail=str(exc)[:300]) from exc
 
 
 @router.get("/{job_id}/email-preview")

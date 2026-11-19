@@ -30,6 +30,7 @@ PURPOSES: dict[str, str] = {
     "draft": "Application drafts",
     "watch": "Agent activity reports",
     "keywords": "Search keywords",
+    "people": "Recruiter search",
 }
 
 

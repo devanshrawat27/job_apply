@@ -11,6 +11,7 @@ import type {
   KeywordsSnapshot,
   LLMKey,
   OutreachItem,
+  PeopleFinderResult,
   Profile,
   ResumeDoc,
   Run,
@@ -220,6 +221,9 @@ export const api = {
   markApplied: (id: number) => mutate<Job>(`/jobs/${id}/mark-applied`, { method: 'POST' }),
   retryDm: (id: number) => mutate<Job>(`/jobs/${id}/retry-dm`, { method: 'POST' }),
   job: (id: number) => request<Job>(`/jobs/${id}`),
+  jobPeople: (id: number) => request<PeopleFinderResult>(`/jobs/${id}/people`),
+  findJobPeople: (id: number) =>
+    mutate<PeopleFinderResult>(`/jobs/${id}/people`, { method: 'POST' }),
   redraftJob: (id: number) => mutate<Job>(`/jobs/${id}/redraft`, { method: 'POST' }),
   emailPreview: (id: number) =>
     request<{
