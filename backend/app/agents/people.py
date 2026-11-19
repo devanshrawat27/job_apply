@@ -38,11 +38,20 @@ Return JSON:
     "the same for the engineering manager or team lead",
     "the same for a software engineer who could refer the candidate"
   ],
+  "people": [
+    {{
+      "name": "full name of a real person who works at this company in a hiring role",
+      "title": "their role, e.g. Technical Recruiter",
+      "linkedin_url": "https://www.linkedin.com/in/<their-slug>"
+    }}
+  ],
   "message": "2-3 sentence LinkedIn DM to the recruiter. Mention the role, one concrete skill, and ask if they are open to a quick chat. No placeholders, no invented names."
 }}
 Rules:
+- people: recruiters, talent acquisition, HR, engineering managers or senior engineers who could refer. Maximum 5.
+- Only include a person you are confident really works at this company. If you are not sure, return an empty list. Never invent a name or a LinkedIn URL.
 - queries must contain the company name (when the post names one).
-- Never write personal names, email addresses or linkedin.com/in URLs.
+- Never write personal names, email addresses or linkedin.com/in URLs inside "message".
 - Keep the message under 70 words."""
 
 
@@ -109,6 +118,28 @@ def _clean_queries(raw: list, company: str) -> list[str]:
     return queries
 
 
+def _clean_people(raw: list) -> list[dict]:
+    people: list[dict] = []
+    seen: set[str] = set()
+    for item in raw or []:
+        if not isinstance(item, dict):
+            continue
+        name = " ".join(str(item.get("name") or "").split())[:80]
+        title = " ".join(str(item.get("title") or "").split())[:120]
+        url = str(item.get("linkedin_url") or "").strip()
+        if not name or not title:
+            continue
+        if not url.startswith("http") or "linkedin.com/in/" not in url:
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        people.append({"name": name, "title": title, "linkedin_url": url})
+        if len(people) >= 5:
+            break
+    return people
+
+
 def generate(
     db,
     job: JobPost,
@@ -146,20 +177,29 @@ def generate(
             logger.warning("people search model unavailable: %s", exc)
 
     result = fallback
+    people_list: list[dict] = []
     if isinstance(data, dict):
         company = str(data.get("company") or fallback["company"]).strip()[:120]
         role = str(data.get("role") or fallback["role"]).strip()[:120]
         queries = _clean_queries(list(data.get("queries") or []), company)
+        people_list = _clean_people(list(data.get("people") or []))
         message = " ".join(str(data.get("message") or "").split())[:600]
         if not queries:
             queries = _fallback(JobPost(company=company, role=role)).get("queries") or []
         if not message:
             message = fallback["message"]
-        result = {"company": company, "role": role, "queries": queries, "message": message}
+        result = {
+            "company": company,
+            "role": role,
+            "queries": queries,
+            "people": people_list,
+            "message": message,
+        }
 
     job.company = result["company"] or job.company
     job.role = result["role"] or job.role
     job.people_queries = result["queries"]
+    job.people_results = people_list
     job.linkedin_message = result["message"]
     from app.models import utcnow
 
@@ -170,6 +210,7 @@ def generate(
         "company": result["company"],
         "role": result["role"],
         "queries": result["queries"],
+        "people": people_list,
         "links": links_for(result["queries"]),
         "message": result["message"],
         "generated": bool(data),
@@ -178,11 +219,13 @@ def generate(
 
 def stored(job: JobPost) -> dict:
     queries = list(job.people_queries or [])
-    if queries:
+    people = list(job.people_results or [])
+    if queries or people:
         return {
             "company": job.company,
             "role": job.role,
             "queries": queries,
+            "people": people,
             "links": links_for(queries),
             "message": job.linkedin_message or "",
             "generated": True,
@@ -192,6 +235,7 @@ def stored(job: JobPost) -> dict:
         "company": base["company"],
         "role": base["role"],
         "queries": base["queries"],
+        "people": [],
         "links": links_for(base["queries"]),
         "message": base["message"],
         "generated": False,

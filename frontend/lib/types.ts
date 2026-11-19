@@ -244,6 +244,7 @@ export interface PeopleFinderResult {
   company: string
   role: string
   queries: string[]
+  people: { name: string; title: string; linkedin_url: string }[]
   links: { label: string; query: string; url: string }[]
   message: string
   generated: boolean

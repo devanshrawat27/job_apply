@@ -12,6 +12,7 @@ type People = {
   company: string
   role: string
   queries: string[]
+  people: { name: string; title: string; linkedin_url: string }[]
   links: { label: string; query: string; url: string }[]
   message: string
   generated: boolean
@@ -61,7 +62,9 @@ export function PeopleFinder({ job }: { job: Job }) {
   if (loading) return null
 
   const links = data?.links ?? []
+  const people = data?.people ?? []
   const hasLinks = links.length > 0
+  const hasPeople = people.length > 0
 
   return (
     <div className="mt-3 rounded-lg border border-border bg-muted/20">
@@ -79,7 +82,7 @@ export function PeopleFinder({ job }: { job: Job }) {
           ) : null}
         </div>
         <Button size="sm" variant="outline" disabled={finding} onClick={() => void find()}>
-          {hasLinks ? <SearchIcon /> : <UsersIcon />}
+          {hasPeople || hasLinks ? <SearchIcon /> : <UsersIcon />}
           Find
         </Button>
       </div>
@@ -89,6 +92,25 @@ export function PeopleFinder({ job }: { job: Job }) {
           <Loader2Icon className="size-3.5 animate-spin" />
           Searching recruiters and hiring managers…
         </div>
+      ) : hasPeople ? (
+        <ul className="flex flex-col divide-y divide-border border-t border-border">
+          {people.map((person) => (
+            <li key={person.linkedin_url} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">{person.name}</p>
+                <p className="truncate text-[11px] text-muted-foreground">{person.title}</p>
+              </div>
+              <a
+                href={person.linkedin_url}
+                target="_blank"
+                rel="noreferrer"
+                className="shrink-0 rounded-full border border-border bg-background px-2.5 py-1 text-xs font-medium hover:bg-muted/60"
+              >
+                LinkedIn
+              </a>
+            </li>
+          ))}
+        </ul>
       ) : hasLinks ? (
         <div className="flex flex-wrap gap-1.5 border-t border-border px-3 py-2.5">
           {links.map((link) => (
