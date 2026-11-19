@@ -721,7 +721,9 @@ _REMOTE_RE = re.compile(
 )
 _INDIA_RE = re.compile(
     r"\b(india|bengaluru|bangalore|hyderabad|pune|mumbai|delhi|noida|gurgaon|gurugram|"
-    r"chennai|kolkata|ahmedabad|jaipur|indore|kochi|trivandrum)\b",
+    r"chennai|kolkata|ahmedabad|jaipur|indore|kochi|trivandrum|dehradun|lucknow|"
+    r"chandigarh|coimbatore|nagpur|surat|bhopal|patna|vadodara|visakhapatnam|mysore|"
+    r"udaipur|goa|bhubaneswar|guwahati)\b",
     re.I,
 )
 _FOREIGN_ONSITE_RE = re.compile(
@@ -748,6 +750,27 @@ _DISCIPLINE_RE = re.compile(
     r"\b(public works|civil|structural|mechanical|electrical|environmental)\b"
     r"[^.\n]{0,25}\bengineer\b"
     r"|\bengineer\b[^.\n]{0,25}\b(public works|civil|structural|mechanical|electrical)\b",
+    re.I,
+)
+
+
+_LOCATION_LINE_RE = re.compile(
+    r"(?:location|based in|office|city)\s*[:\-]\s*([^\n|]{2,70})", re.I
+)
+_FOREIGN_PLACES = re.compile(
+    r"\b(united states|virginia|usa|u\.s\.|us|uk|united kingdom|london|manchester|congleton|"
+    r"canada|toronto|vancouver|germany|berlin|munich|netherlands|amsterdam|france|paris|"
+    r"ireland|dublin|poland|warsaw|spain|madrid|italy|milan|uae|dubai|abu dhabi|"
+    r"saudi|riyadh|qatar|doha|singapore|australia|sydney|melbourne|japan|tokyo|"
+    r"china|beijing|shanghai|hong kong|south africa|johannesburg|cape town|"
+    r"brazil|mexico|argentina|nigeria|lagos|kenya|nairobi|egypt|cairo|"
+    r"new york|san francisco|seattle|austin|boston|chicago|dallas|houston|atlanta|"
+    r"denver|los angeles|san jose|arlington|washington)\b",
+    re.I,
+)
+_ROLE_IN_PLACE_RE = re.compile(
+    r"\b(?:developer|engineer|designer|analyst|manager|intern|architect|role|position)\b"
+    r"[^.|]{0,80}\bin\s+([A-Za-z]+(?:[ ,]+[A-Za-z]+){0,2})",
     re.I,
 )
 
@@ -787,11 +810,23 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
     # On-site roles abroad need visa sponsorship. Remote roles are exempt: the
     # candidate can work from anywhere, so location alone must not reject them.
     remote = bool(_REMOTE_RE.search(body))
-    if not remote and _INDIA_RE.search(location):
+    candidate_in_india = bool(_INDIA_RE.search(f"{location} {resume}"))
+    if not remote and candidate_in_india:
         abroad = _FOREIGN_ONSITE_RE.search(body)
-        if abroad and not _SPONSOR_RE.search(body):
+        place = abroad.group(1) if abroad else ""
+        if not place:
+            location_line = _LOCATION_LINE_RE.search(body)
+            if location_line and _FOREIGN_PLACES.search(location_line.group(1)):
+                place = location_line.group(1).strip()
+        if not place:
+            role_place = _ROLE_IN_PLACE_RE.search(body)
+            if role_place and _FOREIGN_PLACES.search(role_place.group(1)):
+                place = role_place.group(1).strip()
+        if not place and "hk$" in body.lower():
+            place = "Hong Kong"
+        if place and not _SPONSOR_RE.search(body):
             return (
-                f"on-site role in {abroad.group(1)} with no visa sponsorship, "
+                f"on-site role in {place} with no visa sponsorship, "
                 "and the candidate is in India"
             )
 

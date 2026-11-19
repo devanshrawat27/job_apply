@@ -115,3 +115,24 @@ def test_non_software_engineering_roles_are_rejected():
     )
     assert discovery.eligibility_gap(JUNIOR, "Civil engineer required for site work") is not None
     assert discovery.eligibility_gap(JUNIOR, "We are hiring a backend engineer. DM me.") is None
+
+
+def test_plain_location_lines_abroad_are_rejected_for_india_candidate():
+    assert (
+        discovery.eligibility_gap(
+            JUNIOR, "Frontend Developer. Location: Congleton, UK. Apply here."
+        )
+        is not None
+    )
+    assert discovery.eligibility_gap(JUNIOR, "Location: Arlington") is not None
+    assert discovery.eligibility_gap(JUNIOR, "Location: Bengaluru, India") is None
+    # Remote still wins, and sponsorship still allows it.
+    assert (
+        discovery.eligibility_gap(JUNIOR, "Remote role. Location: London") is None
+    )
+    assert (
+        discovery.eligibility_gap(
+            JUNIOR, "Location: Berlin. Visa sponsorship available."
+        )
+        is None
+    )
