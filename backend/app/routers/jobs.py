@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.agents import composer, job_filter, people
+from app.agents import composer, email_writer, job_filter, people
 from app.database import SessionLocal, get_db
 from app.deps import CurrentUser
 from app.llm import LLMUnavailable
@@ -291,26 +291,38 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
     examples = list(db.scalars(examples_stmt).all())
 
     try:
-        draft = composer.compose(
-            profile,
-            job,
-            examples,
-            budget_s=120,
-            providers=providers,
-            browser_fallback=use_browser,
-            browser_user_id=uid,
-        )
+        if job.outreach_method == "email":
+            draft = email_writer.write(
+                db, job, profile, uid, providers=providers, browser=use_browser
+            )
+        else:
+            draft = composer.compose(
+                profile,
+                job,
+                examples,
+                budget_s=120,
+                providers=providers,
+                browser_fallback=use_browser,
+                browser_user_id=uid,
+            )
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         raise HTTPException(status_code=502, detail=str(exc)[:300])
 
-    job.reply_text = draft["reply_text"]
-    job.dm_text = draft["dm_text"]
-    # The stored email is the old one; rebuild it from the new text.
-    job.email_subject = ""
-    job.email_body = ""
+    if job.outreach_method == "email":
+        job.reply_text = ""
+        job.dm_text = draft.get("body") or ""
+        job.email_subject = draft.get("subject") or ""
+        job.email_body = draft.get("body") or ""
+        job.generic_draft = False
+    else:
+        job.reply_text = draft["reply_text"]
+        job.dm_text = draft["dm_text"]
+        # The stored email is the old one; rebuild it from the new text.
+        job.email_subject = ""
+        job.email_body = ""
+        job.generic_draft = bool(draft.get("generic"))
     job.confidence = float(draft["confidence"])
     job.uncertainties = draft["uncertainties"]
-    job.generic_draft = bool(draft.get("generic"))
     if job.status == "rejected":
         job.status = "pending_approval"
     job.decision_reason = (

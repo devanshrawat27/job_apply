@@ -15,7 +15,7 @@ from pathlib import Path
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.agents import composer, discovery, query_lab, spam as spam_guard
+from app.agents import composer, discovery, email_writer, query_lab, spam as spam_guard
 from app.agents.resume import format_experience
 from app.models import (
     ActionLog,
@@ -473,22 +473,39 @@ def scan(
             if resume is not None:
                 job.resume_id = resume.id
                 job.resume_label = (resume.label or resume.filename)[:120]
-            earlier_dms, _last_dm = dm_stats(db, job)
-            draft = composer.compose(
-                profile,
-                job,
-                examples,
-                budget_s=max(0.0, (draft_deadline - _now()).total_seconds()),
-                follow_up=earlier_dms,
-                providers=providers,
-                browser_fallback=browser_draft,
-                browser_user_id=user_id,
-            )
-            job.reply_text = draft["reply_text"]
-            job.dm_text = draft["dm_text"]
-            job.confidence = float(draft["confidence"])
-            job.uncertainties = draft["uncertainties"]
-            job.generic_draft = bool(draft.get("generic"))
+            if job.outreach_method == "email":
+                draft = email_writer.write(
+                    db,
+                    job,
+                    profile,
+                    user_id,
+                    providers=providers,
+                    browser=browser_draft,
+                )
+                job.reply_text = ""
+                job.dm_text = draft.get("body") or ""
+                job.email_subject = draft.get("subject") or ""
+                job.email_body = draft.get("body") or ""
+                job.confidence = float(draft["confidence"])
+                job.uncertainties = draft["uncertainties"]
+                job.generic_draft = False
+            else:
+                earlier_dms, _last_dm = dm_stats(db, job)
+                draft = composer.compose(
+                    profile,
+                    job,
+                    examples,
+                    budget_s=max(0.0, (draft_deadline - _now()).total_seconds()),
+                    follow_up=earlier_dms,
+                    providers=providers,
+                    browser_fallback=browser_draft,
+                    browser_user_id=user_id,
+                )
+                job.reply_text = draft["reply_text"]
+                job.dm_text = draft["dm_text"]
+                job.confidence = float(draft["confidence"])
+                job.uncertainties = draft["uncertainties"]
+                job.generic_draft = bool(draft.get("generic"))
 
             if draft.get("template"):
                 # No model was available, so this draft is a generic template.
@@ -497,6 +514,8 @@ def scan(
                 job.status = "draft_wait"
                 job.reply_text = ""
                 job.dm_text = ""
+                job.email_body = ""
+                job.email_subject = ""
                 job.confidence = 0.0
                 job.decision_reason = "waiting for the AI to write a real draft"
                 job.next_retry_at = (_now() + timedelta(minutes=20)).replace(tzinfo=None)
@@ -505,13 +524,15 @@ def scan(
 
             if draft.get("eligible") is False:
                 reason = (
-                    str(draft.get("eligibility_reason") or "").strip()
+                    str(draft.get("eligibility_reason") or draft.get("reason") or "").strip()
                     or "the candidate does not qualify"
                 )
                 job.status = "rejected"
                 job.decision_reason = f"not eligible: {reason}"
                 job.reply_text = ""
                 job.dm_text = ""
+                job.email_body = ""
+                job.email_subject = ""
                 job.confidence = 0.0
                 stats["rejected"] += 1
                 _log(job, job.decision_reason)
@@ -739,15 +760,20 @@ def redraft_waiting(db: Session, user_id: int | None, limit: int = 3) -> int:
     done = 0
     for job in jobs:
         try:
-            draft = composer.compose(
-                profile,
-                job,
-                examples,
-                budget_s=90,
-                providers=providers,
-                browser_fallback=browser,
-                browser_user_id=user_id,
-            )
+            if job.outreach_method == "email":
+                draft = email_writer.write(
+                    db, job, profile, user_id, providers=providers, browser=browser
+                )
+            else:
+                draft = composer.compose(
+                    profile,
+                    job,
+                    examples,
+                    budget_s=90,
+                    providers=providers,
+                    browser_fallback=browser,
+                    browser_user_id=user_id,
+                )
         except Exception:  # noqa: BLE001 - retry later
             logger.warning("redraft failed for job %s", job.id, exc_info=True)
             job.next_retry_at = (now + timedelta(minutes=DRAFT_WAIT_MINUTES)).replace(tzinfo=None)
@@ -759,18 +785,28 @@ def redraft_waiting(db: Session, user_id: int | None, limit: int = 3) -> int:
             db.commit()
             continue
 
-        job.reply_text = draft["reply_text"]
-        job.dm_text = draft["dm_text"]
+        if job.outreach_method == "email":
+            job.reply_text = ""
+            job.dm_text = draft.get("body") or ""
+            job.email_subject = draft.get("subject") or ""
+            job.email_body = draft.get("body") or ""
+            job.generic_draft = False
+        else:
+            job.reply_text = draft["reply_text"]
+            job.dm_text = draft["dm_text"]
+            job.generic_draft = bool(draft.get("generic"))
         job.confidence = float(draft["confidence"])
         job.uncertainties = draft["uncertainties"]
-        job.generic_draft = bool(draft.get("generic"))
         job.next_retry_at = None
 
         if draft.get("eligible") is False:
             job.status = "rejected"
             job.decision_reason = (
                 "not eligible: "
-                + (str(draft.get("eligibility_reason") or "").strip() or "candidate does not qualify")
+                + (
+                    str(draft.get("eligibility_reason") or draft.get("reason") or "").strip()
+                    or "candidate does not qualify"
+                )
             )
         elif composer.auto_reject_reason(draft.get("uncertainties")):
             job.status = "rejected"

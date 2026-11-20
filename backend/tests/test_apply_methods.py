@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
-from app.agents import composer, discovery
+from app.agents import composer, discovery, email_writer
 from app.database import SessionLocal
 from app.main import app
 from app.models import ActionLog, AgentSettings, DraftExample, JobPost, Profile, Run, XAccount
@@ -155,6 +155,16 @@ def _raw(post_id: str, content: str) -> dict:
 def _scan_with(db, monkeypatch, content: str, draft: dict | None = None):
     if draft is not None:
         monkeypatch.setattr(composer, "compose", lambda *args, **kwargs: draft)
+        email_draft = {
+            "eligible": True,
+            "reason": "",
+            "subject": "Application for Backend Engineer — Dev Rawat",
+            "body": draft.get("dm_text") or "Hello team, my resume is attached.",
+            "confidence": draft.get("confidence", 0.4),
+            "uncertainties": draft.get("uncertainties", []),
+            "template": False,
+        }
+        monkeypatch.setattr(email_writer, "write", lambda *args, **kwargs: email_draft)
     monkeypatch.setattr(
         executor,
         "run_script",
