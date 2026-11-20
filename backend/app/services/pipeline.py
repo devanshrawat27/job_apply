@@ -1453,11 +1453,13 @@ def _send_one(
                 result = {"success": False, "code": "UNKNOWN", "error": str(exc)}
         except x_dm_api.DMError as exc:
             message = str(exc)
-            failed_code = (
-                "DM_CLOSED"
-                if "349" in message or "does not accept messages" in message
-                else "failed"
-            )
+            lowered = message.lower()
+            if "session is no longer valid" in lowered or "http 401" in lowered:
+                failed_code = "SESSION_EXPIRED"
+            elif "349" in message or "does not accept messages" in lowered:
+                failed_code = "DM_CLOSED"
+            else:
+                failed_code = "failed"
             result = {"success": False, "code": failed_code, "error": message}
 
         if result is None:
@@ -1468,6 +1470,10 @@ def _send_one(
                 dm_passcode=accounts.dm_passcode(account),
                 user_id=job.user_id,
             )
+
+        if result.get("code") == "SESSION_EXPIRED":
+            account.status = "expired"
+            db.commit()
 
         # X sometimes only allows a DM once you follow. Follow *only* then, and
         # retry the DM once - never follow when the DM already works.

@@ -23,7 +23,7 @@ from app.database import SessionLocal
 from app.models import JobPost, User
 from app.agents import analyst, inbox, watcher
 from app.config import settings
-from app.services import accounts, browser_chatgpt, executor, limits, pipeline
+from app.services import accounts, browser_chatgpt, executor, limits, pipeline, x_dm_api
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +37,10 @@ IDLE_FEED_SCROLLS = 14
 
 # Check the X inbox for answers this often. Read-only.
 INBOX_MINUTES = 20
+
+# Probe the saved X session this often. A 401 means the cookies are dead and
+# nothing can be sent until the account is reconnected in Settings.
+SESSION_CHECK_MINUTES = 30
 
 # Run the AI fit screen for unreviewed Approvals at most this often.
 FIT_SCREEN_MINUTES = 10
@@ -74,6 +78,8 @@ class AgentLoop(threading.Thread):
         self._last_scan: dict[int | None, datetime] = {}
         self._last_idle_feed: dict[int | None, datetime] = {}
         self._last_inbox: dict[int | None, datetime] = {}
+        # Last time the saved X session was probed for expiry.
+        self._last_session_check: dict[int | None, datetime] = {}
         self._last_fit: dict[int | None, datetime] = {}
         # Consecutive scans that found nothing, per user. Used to retry with the
         # next keywords instead of sitting idle for the whole interval.
@@ -132,7 +138,32 @@ class AgentLoop(threading.Thread):
         if not settings_row.enabled:
             return
 
-        # 0. Promote DM retries whose 30-minute wait is over.
+        # 0. Is the saved X session still alive? Only X answering 401 counts as
+        # proof; a network blip must never mark the account expired. While it
+        # is dead every send would fail, so stop and ask the user to reconnect.
+        account = accounts.active_account(db, user_id)
+        creds = accounts.account_credentials(account) if account else None
+        if creds:
+            last_session = self._last_session_check.get(user_id)
+            if last_session is None or now - last_session >= timedelta(minutes=SESSION_CHECK_MINUTES):
+                self._last_session_check[user_id] = now
+                ok, _reason = x_dm_api.check_session(creds)
+                status = "connected" if ok else "expired"
+                if account.status != status:
+                    account.status = status
+                    db.commit()
+                    if ok:
+                        logger.info("user %s X session is valid again", user_id)
+                    else:
+                        logger.warning(
+                            "user %s X session expired - reconnect the account in Settings",
+                            user_id,
+                        )
+            if account.status == "expired":
+                logger.info("user %s paused: X session expired", user_id)
+                return
+
+        # 0a. Promote DM retries whose 30-minute wait is over.
         retry_stmt = select(JobPost).where(JobPost.status == "retry_wait")
         if user_id is not None:
             retry_stmt = retry_stmt.where(JobPost.user_id == user_id)

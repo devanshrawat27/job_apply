@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import {
+  AlertTriangleIcon,
   AtSignIcon,
   CheckCircle2Icon,
   Loader2Icon,
@@ -306,8 +307,12 @@ export default function SettingsPage() {
             <Badge variant={form.enabled ? 'success' : 'warning'}>
               {form.enabled ? 'Agent on' : 'Agent paused'}
             </Badge>
-            <Badge variant={account ? 'success' : 'warning'}>
-              {account ? `@${account.username}` : 'X not connected'}
+            <Badge variant={!account ? 'warning' : account.status === 'expired' ? 'destructive' : 'success'}>
+              {!account
+                ? 'X not connected'
+                : account.status === 'expired'
+                  ? `@${account.username} — session expired`
+                  : `@${account.username}`}
             </Badge>
             <Badge variant={chatgpt?.connected ? 'success' : 'warning'}>
               {chatgpt?.connected ? 'ChatGPT connected' : 'No ChatGPT'}
@@ -931,14 +936,29 @@ export default function SettingsPage() {
               <div>
                 <p className="text-sm font-medium">@{account.username}</p>
                 <p className="text-xs text-muted-foreground">
-                  {account.status} · {account.has_dm_passcode ? 'DM passcode saved' : 'no DM passcode (optional)'}
+                  {account.status === 'expired'
+                    ? 'Your saved X login stopped working. Reconnect to start sending again.'
+                    : 'Connected and ready to send.'}
+                  {account.has_dm_passcode ? ' · DM passcode saved' : ''}
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <Badge variant="success" className="gap-1.5">
-                  <CheckCircle2Icon className="size-3" />
-                  Connected
-                </Badge>
+                {account.status === 'expired' ? (
+                  <>
+                    <Badge variant="destructive" className="gap-1.5">
+                      <AlertTriangleIcon className="size-3" />
+                      Session expired
+                    </Badge>
+                    <Button size="sm" onClick={() => setReplacing(true)}>
+                      Reconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Badge variant="success" className="gap-1.5">
+                    <CheckCircle2Icon className="size-3" />
+                    Connected
+                  </Badge>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => void disconnect()}>
                   <Trash2Icon />
                   Disconnect

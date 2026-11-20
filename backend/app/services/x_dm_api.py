@@ -346,3 +346,19 @@ def find_sent_message(
         if attempt + 1 < attempts:
             time.sleep(max(0.0, delay))
     return None
+
+
+def check_session(credentials: dict[str, str]) -> tuple[bool, str]:
+    """Cheap session probe: returns (ok, reason).
+
+    Only a 401 is treated as proof that the saved cookies are dead. Network
+    errors and 403/429 are ambiguous and must not mark the account expired.
+    """
+    try:
+        with _client(credentials, timeout=20) as client:
+            response = client.get("https://x.com/i/api/1.1/account/settings.json")
+    except httpx.HTTPError:
+        return True, ""
+    if response.status_code == 401:
+        return False, "session expired"
+    return True, ""
