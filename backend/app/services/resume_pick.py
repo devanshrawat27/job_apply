@@ -8,6 +8,7 @@ the draft and the email attachment use the most relevant one.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -35,6 +36,9 @@ def pick_best(db: Session, job: JobPost) -> Resume | None:
     if job.user_id is not None:
         stmt = stmt.where(Resume.user_id == job.user_id)
     resumes = list(db.scalars(stmt).all())
+    # A resume row whose file is gone (cleared uploads, old data) can never be
+    # attached, so it must never win the pick.
+    resumes = [row for row in resumes if row.path and Path(row.path).exists()]
     if not resumes:
         return None
 

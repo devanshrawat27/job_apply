@@ -10,6 +10,7 @@ import logging
 import re
 import threading
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
@@ -1164,11 +1165,36 @@ def _send_one(
             job.dm_text,
         )
 
-        attachment = profile.resume_path if profile else ""
+        attachment = ""
         if job.resume_id:
             chosen = db.get(Resume, job.resume_id)
-            if chosen is not None and chosen.path:
+            if chosen is not None and chosen.path and Path(chosen.path).exists():
                 attachment = chosen.path
+        if not attachment and profile is not None and profile.resume_path:
+            if Path(profile.resume_path).exists():
+                attachment = profile.resume_path
+        if not attachment:
+            # The selected resume file is gone (or never existed). Fall back to
+            # any resume that is actually on disk.
+            stmt = select(Resume)
+            if job.user_id is not None:
+                stmt = stmt.where(Resume.user_id == job.user_id)
+            for row in db.scalars(stmt).all():
+                if row.path and Path(row.path).exists():
+                    attachment = row.path
+                    job.resume_id = row.id
+                    job.resume_label = row.label or row.filename
+                    break
+        if not attachment:
+            # Never send an application email without a resume.
+            job.status = "pending_approval"
+            job.decision_reason = (
+                "No resume file to attach - upload your resume, then send again"
+            )
+            job.email_status = "none"
+            _log(job, "email not sent: no resume file available")
+            db.commit()
+            return {}
 
         result = mailer.send_application(
             job.contact_email,

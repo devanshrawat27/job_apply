@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 import threading
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app.agents import composer, job_filter, people
 from app.database import SessionLocal, get_db
@@ -390,7 +391,11 @@ def email_preview(
 
     resumes = []
     stmt = select(Resume).where(Resume.user_id == job.user_id)
+    valid_ids = set()
     for row in db.scalars(stmt.order_by(Resume.id)).all():
+        if not row.path or not Path(row.path).exists():
+            continue
+        valid_ids.add(row.id)
         resumes.append(
             {
                 "id": row.id,
@@ -399,13 +404,26 @@ def email_preview(
             }
         )
 
+    current_id = job.resume_id or 0
+    if current_id not in valid_ids:
+        # The stored resume file is gone; point the preview at a real one.
+        current_id = resumes[0]["id"] if resumes else 0
+        attachment = resumes[0]["label"] if resumes else ""
+        if current_id:
+            job.resume_id = current_id
+            job.resume_label = attachment[:120]
+            db.commit()
+    else:
+        attachment = job.resume_label or (
+            profile.resume_filename if profile is not None else ""
+        )
+
     return {
         "to": job.contact_email,
         "subject": job.email_subject or subject,
         "body": job.email_body or body,
-        "attachment": job.resume_label
-        or (profile.resume_filename if profile is not None else ""),
-        "resume_id": job.resume_id or 0,
+        "attachment": attachment,
+        "resume_id": current_id,
         "resumes": resumes,
     }
 
