@@ -73,6 +73,7 @@ export function ConnectXForm({
   const [password, setPassword] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
   const [dmPasscode, setDmPasscode] = useState('')
+  const [rememberPassword, setRememberPassword] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -96,6 +97,7 @@ export function ConnectXForm({
         password,
         verification_code: verificationCode.trim() || undefined,
         dm_passcode: allowDm ? dmPasscode.trim() || undefined : undefined,
+        remember_password: rememberPassword,
       })
       setPassword('')
       setVerificationCode('')
@@ -133,7 +135,11 @@ export function ConnectXForm({
 
         <Field
           label="X password"
-          hint="A browser window opens and signs in for you. The password is never stored."
+          hint={
+            rememberPassword
+              ? 'Saved encrypted, so the agent can sign in again if X logs you out.'
+              : 'Used once to sign in. Nothing is kept.'
+          }
         >
           <Input
             type="password"
@@ -220,12 +226,35 @@ export function ConnectXForm({
         </div>
       </div>
 
+      <div className="flex items-start gap-2 rounded-xl border border-border p-3 text-xs text-muted-foreground">
+        <button
+          type="button"
+          onClick={() => setRememberPassword((value) => !value)}
+          className={cn(
+            'mt-0.5 grid size-4 shrink-0 place-items-center rounded-sm border',
+            rememberPassword
+              ? 'border-foreground bg-foreground text-background'
+              : 'border-border',
+          )}
+          aria-pressed={rememberPassword}
+        >
+          {rememberPassword ? <CheckIcon className="size-3" /> : null}
+        </button>
+        <div>
+          <p className="font-medium text-foreground">Sign in again automatically</p>
+          <p className="mt-0.5">
+            Keeps your X password encrypted so the agent can log back in when X expires your
+            session. Without it, the agent pauses X and asks you to reconnect.
+          </p>
+        </div>
+      </div>
+
       <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-xs text-muted-foreground">
         <ShieldCheckIcon className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
         <p>
-          The agent signs in to X with the handle and password above, then stores only the
-          resulting session cookies (encrypted). Your password is not stored and is never
-          returned by the API. The chat passcode is used only to unlock encrypted DMs.
+          The agent signs in to X with the handle and password above, then stores the resulting
+          session cookies (encrypted). The password is never returned by the API. The chat
+          passcode is used only to unlock encrypted DMs.
         </p>
       </div>
 

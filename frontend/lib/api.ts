@@ -173,6 +173,7 @@ export const api = {
     password: string
     verification_code?: string
     dm_passcode?: string
+    remember_password?: boolean
   }) => request<Account>('/accounts/connect', { method: 'POST', body: JSON.stringify(payload) }),
   disconnect: (id: number) => request<{ deleted: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
   setDmPasscode: (id: number, passcode: string | null) =>

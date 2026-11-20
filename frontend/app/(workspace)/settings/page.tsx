@@ -937,8 +937,10 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium">@{account.username}</p>
                 <p className="text-xs text-muted-foreground">
                   {account.status === 'expired'
-                    ? 'Your saved X login stopped working. Reconnect to start sending again.'
-                    : 'Connected and ready to send.'}
+                    ? 'X is paused — email applications keep running. The agent is trying to sign in again; otherwise reconnect here.'
+                    : account.can_auto_reconnect
+                      ? 'Connected. If X logs you out, the agent signs in again automatically.'
+                      : 'Connected. If X logs you out, reconnect here.'}
                   {account.has_dm_passcode ? ' · DM passcode saved' : ''}
                 </p>
               </div>

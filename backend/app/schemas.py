@@ -86,6 +86,7 @@ class ConnectIn(BaseModel):
     password: str
     verification_code: str | None = None
     dm_passcode: str | None = None
+    remember_password: bool = True
 
 
 class DmPasscodeIn(BaseModel):
@@ -99,6 +100,7 @@ class AccountOut(BaseModel):
     status: str
     has_session: bool = True
     has_dm_passcode: bool = False
+    can_auto_reconnect: bool = False
     last_checked_at: datetime | None = None
 
     @field_serializer("last_checked_at")

@@ -724,10 +724,17 @@ def send_batch(
     run: Run | None = None,
     user_id: int | None = None,
     force: bool = False,
+    only_email: bool = False,
 ) -> Run:
     with _send_lock:
         return _send_batch(
-            db, job_ids=job_ids, limit=limit, run=run, user_id=user_id, force=force
+            db,
+            job_ids=job_ids,
+            limit=limit,
+            run=run,
+            user_id=user_id,
+            force=force,
+            only_email=only_email,
         )
 
 
@@ -879,6 +886,7 @@ def _send_batch(
     run: Run | None = None,
     user_id: int | None = None,
     force: bool = False,
+    only_email: bool = False,
 ) -> Run:
     if run is None:
         run = Run(kind="send", status="running", user_id=user_id)
@@ -891,11 +899,12 @@ def _send_batch(
     try:
         settings_row = get_settings_row(db, user_id)
         account = accounts.active_account(db, user_id)
-        if account is None:
-            raise PipelineError("Connect your X account first.")
-        creds = accounts.account_credentials(account)
-        if not creds:
-            raise PipelineError("The stored X session could not be read. Reconnect the account.")
+        creds = accounts.account_credentials(account) if account else None
+        x_ready = bool(creds) and (account is None or account.status != "expired")
+        if not x_ready:
+            # X is paused (no session or an expired one). Email applications do
+            # not use X at all, so they keep going instead of blocking everything.
+            only_email = True
 
         # A post that has been waiting for a day is usually filled or stale.
         # Expire it instead of letting the queue grow forever.
@@ -914,6 +923,8 @@ def _send_batch(
         )
         if user_id is not None:
             query = query.where(JobPost.user_id == user_id)
+        if only_email:
+            query = query.where(JobPost.outreach_method == "email")
         if job_ids:
             query = (
                 select(JobPost)
@@ -929,7 +940,9 @@ def _send_batch(
             job.status = "sending"
             db.commit()
 
-            outcome = _send_one(db, job, account, settings_row, creds, force=force)
+            outcome = _send_one(
+                db, job, account, settings_row, creds, force=force, x_ready=x_ready
+            )
             stats["attempted"] += 1
 
             if outcome.get("stop"):
@@ -1112,9 +1125,13 @@ def _send_one(
     creds: dict,
     *,
     force: bool = False,
+    x_ready: bool = True,
 ) -> dict:
     """Apply to one post using the method the post actually asks for."""
     method = job.outreach_method or "dm"
+
+    if method != "email" and not x_ready:
+        return {"deferred": "X is paused - reconnect the account to send replies and DMs"}
 
     # External apply link: never send a reply or DM. The human applies through
     # the link (Apply links tab); a queued row may still reach this guard. A post

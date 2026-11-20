@@ -139,49 +139,66 @@ class AgentLoop(threading.Thread):
             return
 
         # 0. Is the saved X session still alive? Only X answering 401 counts as
-        # proof; a network blip must never mark the account expired. While it
-        # is dead every send would fail, so stop and ask the user to reconnect.
+        # proof; a network blip must never mark the account expired. If the
+        # user allowed it, sign in again automatically; otherwise pause only
+        # the X side (email applications keep running).
         account = accounts.active_account(db, user_id)
         creds = accounts.account_credentials(account) if account else None
+        x_ready = bool(creds) and account is not None and account.status != "expired"
         if creds:
             last_session = self._last_session_check.get(user_id)
-            if last_session is None or now - last_session >= timedelta(minutes=SESSION_CHECK_MINUTES):
+            session_due = last_session is None or now - last_session >= timedelta(
+                minutes=SESSION_CHECK_MINUTES
+            )
+            if session_due or account.status == "expired":
                 self._last_session_check[user_id] = now
-                ok, _reason = x_dm_api.check_session(creds)
-                status = "connected" if ok else "expired"
-                if account.status != status:
-                    account.status = status
-                    db.commit()
-                    if ok:
-                        logger.info("user %s X session is valid again", user_id)
-                    else:
-                        logger.warning(
-                            "user %s X session expired - reconnect the account in Settings",
+                alive = account.status != "expired" and x_dm_api.check_session(creds)[0]
+                if not alive:
+                    recovered = accounts.auto_reconnect(db, account)
+                    if recovered["ok"]:
+                        creds = accounts.account_credentials(account)
+                        x_ready = True
+                        logger.info(
+                            "user %s X session was expired - signed in again automatically",
                             user_id,
                         )
-            if account.status == "expired":
-                logger.info("user %s paused: X session expired", user_id)
-                return
+                    else:
+                        x_ready = False
+                        if account.status != "expired":
+                            account.status = "expired"
+                            db.commit()
+                        logger.warning(
+                            "user %s X session expired (%s: %s) - reconnect in Settings;"
+                            " email applications keep running",
+                            user_id,
+                            recovered["code"],
+                            recovered["error"],
+                        )
+                elif account.status != "connected":
+                    account.status = "connected"
+                    db.commit()
+                    logger.info("user %s X session is valid again", user_id)
 
         # 0a. Promote DM retries whose 30-minute wait is over.
-        retry_stmt = select(JobPost).where(JobPost.status == "retry_wait")
-        if user_id is not None:
-            retry_stmt = retry_stmt.where(JobPost.user_id == user_id)
-        now_naive = now.replace(tzinfo=None)
-        for job in db.scalars(retry_stmt).all():
-            if job.next_retry_at is not None and job.next_retry_at > now_naive:
-                continue
-            job.status = "queued"
-            job.dm_status = "pending"
-            job.next_retry_at = None
-            job.last_error = ""
-            job.logs = [*(job.logs or []), "retry window reached - queued again"][-60:]
-        db.commit()
+        if x_ready:
+            retry_stmt = select(JobPost).where(JobPost.status == "retry_wait")
+            if user_id is not None:
+                retry_stmt = retry_stmt.where(JobPost.user_id == user_id)
+            now_naive = now.replace(tzinfo=None)
+            for job in db.scalars(retry_stmt).all():
+                if job.next_retry_at is not None and job.next_retry_at > now_naive:
+                    continue
+                job.status = "queued"
+                job.dm_status = "pending"
+                job.next_retry_at = None
+                job.last_error = ""
+                job.logs = [*(job.logs or []), "retry window reached - queued again"][-60:]
+            db.commit()
 
         # 0b. Read the X inbox for answers (read-only, every ~20 min).
         last_inbox = self._last_inbox.get(user_id)
         inbox_due = last_inbox is None or now - last_inbox >= timedelta(minutes=INBOX_MINUTES)
-        if inbox_due:
+        if x_ready and inbox_due:
             account = accounts.active_account(db, user_id)
             creds = accounts.account_credentials(account) if account else None
             if creds:
@@ -194,6 +211,9 @@ class AgentLoop(threading.Thread):
                     db.rollback()
 
         write_action = "reply" if settings_row.use_public_reply else "dm"
+        if not x_ready:
+            # X is paused; only emails can go out, so pace on the email limit.
+            write_action = "email"
 
         # 0c. Verify application links. Dead links (404, typo, redirect back to
         # the post) are removed before the human ever clicks them.
@@ -208,10 +228,13 @@ class AgentLoop(threading.Thread):
                 logger.warning("link check failed for user %s", user_id, exc_info=True)
                 db.rollback()
 
-        # 1. Send at most one queued post (the cool-down owns the pace).
+        # 1. Send at most one queued post (the cool-down owns the pace). When X
+        # is paused, only email applications are picked.
         queued_stmt = select(func.count(JobPost.id)).where(JobPost.status == "queued")
         if user_id is not None:
             queued_stmt = queued_stmt.where(JobPost.user_id == user_id)
+        if not x_ready:
+            queued_stmt = queued_stmt.where(JobPost.outreach_method == "email")
         queued = int(db.scalar(queued_stmt) or 0)
 
         sent_this_tick = False
@@ -220,7 +243,9 @@ class AgentLoop(threading.Thread):
             if not state.allowed:
                 logger.info("user %s queue waiting: %s", user_id, state.reason)
             else:
-                run = pipeline.send_batch(db, limit=1, user_id=user_id)
+                run = pipeline.send_batch(
+                    db, limit=1, user_id=user_id, only_email=not x_ready
+                )
                 sent_this_tick = True
                 logger.info("user %s send pass: %s %s", user_id, run.status, run.stats)
 
@@ -230,10 +255,12 @@ class AgentLoop(threading.Thread):
         queued_now_stmt = select(func.count(JobPost.id)).where(JobPost.status == "queued")
         if user_id is not None:
             queued_now_stmt = queued_now_stmt.where(JobPost.user_id == user_id)
+        if not x_ready:
+            queued_now_stmt = queued_now_stmt.where(JobPost.outreach_method == "email")
         queued_now = int(db.scalar(queued_now_stmt) or 0)
         last_idle = self._last_idle_feed.get(user_id)
         idle_due = last_idle is not None and now - last_idle >= timedelta(minutes=IDLE_FEED_MINUTES)
-        if queued_now == 0 and idle_due:
+        if x_ready and queued_now == 0 and idle_due:
             self._last_idle_feed[user_id] = now
             feed_run = pipeline.scan(
                 db,
@@ -315,6 +342,14 @@ class AgentLoop(threading.Thread):
                 db.rollback()
 
         # 3. Scanning runs on its own schedule and is never starved by the queue.
+        # Search itself needs X, so it stops while the session is dead; emails
+        # and drafting above keep working.
+        if not x_ready:
+            self._last_scan.pop(user_id, None)
+            logger.info(
+                "user %s X paused: session expired - scanning resumes after reconnect", user_id
+            )
+            return
         interval = max(1, settings_row.scan_interval_minutes)
         last = self._last_scan.get(user_id)
         due = last is None or now - last >= timedelta(minutes=interval)

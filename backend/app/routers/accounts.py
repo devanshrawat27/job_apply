@@ -23,6 +23,7 @@ def _to_out(account: XAccount) -> AccountOut:
         status=account.status,
         has_session=bool(account.session_ciphertext),
         has_dm_passcode=bool(account.dm_passcode),
+        can_auto_reconnect=accounts.password_saved(account),
         last_checked_at=account.last_checked_at,
     )
 
@@ -48,6 +49,7 @@ def connect(
         user_id=_uid(user),
         verification_code=payload.verification_code,
         dm_passcode=payload.dm_passcode,
+        remember_password=payload.remember_password,
     )
     if not result.get("success"):
         raise HTTPException(status_code=400, detail=result.get("error") or result.get("code"))

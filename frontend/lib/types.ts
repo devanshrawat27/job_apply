@@ -60,6 +60,7 @@ export interface Account {
   status: string
   has_session: boolean
   has_dm_passcode: boolean
+  can_auto_reconnect: boolean
   last_checked_at: string | null
 }
 
