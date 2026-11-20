@@ -15,6 +15,8 @@ from pathlib import Path
 from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.config import settings
+
 from app.agents import composer, discovery, email_writer, query_lab, spam as spam_guard
 from app.agents.resume import format_experience
 from app.models import (

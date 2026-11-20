@@ -778,6 +778,21 @@ _ROLE_IN_PLACE_RE = re.compile(
 )
 
 
+_FOREIGN_ANYWHERE_RE = re.compile(
+    r"\b(united states|usa|u\.s\.|uk|united kingdom|london|manchester|congleton|"
+    r"canada|toronto|vancouver|germany|berlin|munich|netherlands|amsterdam|france|paris|"
+    r"ireland|dublin|poland|warsaw|spain|madrid|italy|milan|uae|dubai|abu dhabi|"
+    r"saudi|riyadh|qatar|doha|singapore|australia|sydney|melbourne|japan|tokyo|"
+    r"china|beijing|shanghai|hong kong|south africa|johannesburg|cape town|"
+    r"brazil|mexico|argentina|nigeria|lagos|kenya|nairobi|egypt|cairo|"
+    r"new york|san francisco|seattle|austin|boston|chicago|dallas|houston|atlanta|"
+    r"denver|los angeles|san jose|arlington|washington|virginia|california|texas|"
+    r"florida|illinois|ohio|georgia|pennsylvania|michigan|arizona|massachusetts|"
+    r"colorado|maryland|new jersey|district of columbia)\b",
+    re.I,
+)
+
+
 def eligibility_gap(profile: Profile, text: str) -> str | None:
     """Hard eligibility gate: reject before drafting when the candidate cannot qualify.
 
@@ -835,6 +850,12 @@ def eligibility_gap(profile: Profile, text: str) -> str | None:
                 place = role_place.group(1).strip()
         if not place and "hk$" in body.lower():
             place = "Hong Kong"
+        if not place and not _INDIA_RE.search(body):
+            # A plain "Washington, United States (Onsite)" or "New Jersey" line
+            # is still an on-site job abroad.
+            anywhere = _FOREIGN_ANYWHERE_RE.search(body)
+            if anywhere:
+                place = anywhere.group(0)
         if place and not willing_to_relocate:
             return f"on-site role in {place}, and the candidate is not willing to relocate"
         if place and not _SPONSOR_RE.search(body):
