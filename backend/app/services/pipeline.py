@@ -32,7 +32,16 @@ from app.models import (
     XAccount,
 )
 from app.security import decrypt_credentials
-from app.services import accounts, browser_chatgpt, email_accounts, executor, limits, mailer, resume_pick
+from app.services import (
+    accounts,
+    browser_chatgpt,
+    email_accounts,
+    executor,
+    limits,
+    mailer,
+    resume_pick,
+    x_dm_api,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1424,13 +1433,41 @@ def _send_one(
                 _log(job, f"follow before follow-up failed ({follow_code}) - sending DM anyway")
 
         job.dm_attempts = int(job.dm_attempts or 0) + 1
-        result = executor.run_script(
-            "dm",
-            {"username": job.author_handle, "message": job.dm_text},
-            creds=creds,
-            dm_passcode=accounts.dm_passcode(account),
-            user_id=job.user_id,
-        )
+
+        # Try X's own DM endpoint first: it needs no chat passcode and does not
+        # depend on the encrypted chat window rendering. The browser script is
+        # the fallback when the endpoint cannot be used.
+        result = None
+        try:
+            sent = x_dm_api.send_dm(job.author_handle, job.dm_text, creds)
+            result = {"success": True, "code": "OK", "data": sent}
+            _log(job, "dm: sent through X's DM endpoint")
+        except x_dm_api.DMUnavailable as exc:
+            _log(job, f"dm endpoint unavailable ({exc}) - using the chat window")
+        except x_dm_api.DMUnknown as exc:
+            found = x_dm_api.find_sent_message(creds, job.author_handle, job.dm_text)
+            if found is not None:
+                result = {"success": True, "code": "OK", "data": found}
+                _log(job, "dm: confirmed in the inbox after an unverified send")
+            else:
+                result = {"success": False, "code": "UNKNOWN", "error": str(exc)}
+        except x_dm_api.DMError as exc:
+            message = str(exc)
+            failed_code = (
+                "DM_CLOSED"
+                if "349" in message or "does not accept messages" in message
+                else "failed"
+            )
+            result = {"success": False, "code": failed_code, "error": message}
+
+        if result is None:
+            result = executor.run_script(
+                "dm",
+                {"username": job.author_handle, "message": job.dm_text},
+                creds=creds,
+                dm_passcode=accounts.dm_passcode(account),
+                user_id=job.user_id,
+            )
 
         # X sometimes only allows a DM once you follow. Follow *only* then, and
         # retry the DM once - never follow when the DM already works.
