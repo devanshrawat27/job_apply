@@ -1,26 +1,35 @@
 'use client'
 
+import { LayoutGridIcon } from 'lucide-react'
+
 import { cn } from '@/lib/utils'
 
 export type Platform = 'all' | 'x' | 'linkedin'
 
-const OPTIONS: { key: Platform; label: string }[] = [
-  { key: 'all', label: 'All platforms' },
-  { key: 'x', label: 'X' },
-  { key: 'linkedin', label: 'LinkedIn' },
+const OPTIONS: { key: Platform; label: string; short: string }[] = [
+  { key: 'all', label: 'All platforms', short: 'All' },
+  { key: 'x', label: 'X', short: 'X' },
+  { key: 'linkedin', label: 'LinkedIn', short: 'LinkedIn' },
 ]
+
+function activeButton(platform: Platform): string {
+  if (platform === 'linkedin') return 'bg-[#0a66c2] text-white shadow-sm'
+  if (platform === 'x') return 'bg-foreground text-background shadow-sm'
+  return 'bg-foreground/10 text-foreground shadow-sm ring-1 ring-foreground/15'
+}
+
+function activeCount(platform: Platform): string {
+  if (platform === 'linkedin') return 'bg-white/20 text-white'
+  if (platform === 'x') return 'bg-background/20 text-background'
+  return 'bg-muted text-foreground'
+}
 
 function PlatformMark({ platform, active }: { platform: Platform; active: boolean }) {
   if (platform === 'all') {
     return (
-      <span
-        className={cn(
-          'grid size-4 place-items-center rounded-[4px] text-[9px] font-bold',
-          active ? 'bg-background/20 text-background' : 'bg-muted text-muted-foreground',
-        )}
-      >
-        *
-      </span>
+      <LayoutGridIcon
+        className={cn('size-3.5', active ? 'text-foreground' : 'text-muted-foreground')}
+      />
     )
   }
   if (platform === 'linkedin') {
@@ -28,7 +37,7 @@ function PlatformMark({ platform, active }: { platform: Platform; active: boolea
       <span
         className={cn(
           'grid size-4 place-items-center rounded-[4px] text-[9px] font-bold leading-none',
-          active ? 'bg-background text-sky-700' : 'bg-sky-600 text-white',
+          active ? 'bg-white text-[#0a66c2]' : 'bg-[#0a66c2] text-white',
         )}
       >
         in
@@ -39,7 +48,7 @@ function PlatformMark({ platform, active }: { platform: Platform; active: boolea
     <span
       className={cn(
         'grid size-4 place-items-center rounded-[4px] text-[9px] font-bold leading-none',
-        active ? 'bg-background text-foreground' : 'bg-foreground text-background',
+        active ? 'bg-background text-foreground' : 'bg-muted text-muted-foreground',
       )}
     >
       X
@@ -64,7 +73,7 @@ export function PlatformSwitch({
           Show jobs from one platform at a time.
         </p>
       </div>
-      <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-background p-1">
+      <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/60 p-1">
         {OPTIONS.map((option) => {
           const active = value === option.key
           return (
@@ -76,16 +85,21 @@ export function PlatformSwitch({
               className={cn(
                 'flex items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors sm:px-3',
                 active
-                  ? 'bg-foreground text-background shadow-sm'
-                  : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                  ? activeButton(option.key)
+                  : 'text-foreground/70 hover:bg-background/60 hover:text-foreground',
               )}
             >
               <PlatformMark platform={option.key} active={active} />
-              <span>{option.label}</span>
+              <span>
+                <span className="hidden sm:inline">{option.label}</span>
+                <span className="sm:hidden">{option.short}</span>
+              </span>
               <span
                 className={cn(
                   'grid min-w-4 place-items-center rounded-full px-1 text-[10px] tabular-nums',
-                  active ? 'bg-background/20 text-background' : 'bg-muted text-muted-foreground',
+                  active
+                    ? activeCount(option.key)
+                    : 'bg-background text-foreground/60',
                 )}
               >
                 {counts[option.key] ?? 0}
