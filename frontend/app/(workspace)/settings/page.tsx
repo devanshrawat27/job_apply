@@ -497,7 +497,7 @@ export default function SettingsPage() {
             checked={Boolean(form.linkedin_enabled)}
             onChange={(linkedin_enabled) => patch({ linkedin_enabled })}
             label="Find jobs on LinkedIn"
-            hint="Reads LinkedIn's public jobs board every hour. Only jobs posted in the last 2 hours are added; each job opens on LinkedIn."
+            hint="Reads LinkedIn's public jobs board every hour. Only jobs posted in the last 2 hours are added, and they leave the list after 2 hours. Each job opens on LinkedIn."
           />
           {form.linkedin_pause_until ? (
             <p className="text-xs text-amber-600 dark:text-amber-400">
