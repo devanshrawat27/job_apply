@@ -43,8 +43,8 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       },
       {
         href: '/posts',
-        label: 'Found posts',
-        description: 'Every post the agent read',
+        label: 'Found jobs',
+        description: 'Every post and job the agent read',
         icon: SearchIcon,
       },
       {

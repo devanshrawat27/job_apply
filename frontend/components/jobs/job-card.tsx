@@ -85,7 +85,10 @@ export function JobCard({
   const [error, setError] = useState('')
 
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
+  const isLinkedIn = job.source === 'linkedin'
   const method = METHOD[job.outreach_method] ?? METHOD.dm
+  const methodLabel =
+    isLinkedIn && job.outreach_method === 'link' ? 'apply on LinkedIn' : method.label
   const MethodIcon = method.icon
   const canAct = !['sent', 'sending'].includes(job.status)
   const needsYou = job.status === 'pending_approval'
@@ -175,20 +178,30 @@ export function JobCard({
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <span className="text-sm font-medium">{job.author_name || job.author_handle}</span>
-              <span className="text-xs text-muted-foreground">@{job.author_handle}</span>
+              <span className="text-sm font-medium">
+                {isLinkedIn ? job.company || job.author_name : job.author_name || job.author_handle}
+              </span>
+              {isLinkedIn ? (
+                <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-400">
+                  in LinkedIn
+                </span>
+              ) : (
+                <span className="text-xs text-muted-foreground">@{job.author_handle}</span>
+              )}
               <span className="text-xs text-muted-foreground">
                 · {timeAgo(job.posted_at || job.discovered_at)}
               </span>
             </div>
 
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              {job.company ? <span className="font-medium text-foreground">{job.company}</span> : null}
+              {job.company && !isLinkedIn ? (
+                <span className="font-medium text-foreground">{job.company}</span>
+              ) : null}
               {job.role ? <span>{job.role}</span> : null}
               {job.job_location ? <span>· {job.job_location}</span> : null}
               <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px]">
                 <MethodIcon className="size-3" />
-                {method.label}
+                {methodLabel}
               </span>
               {applyMode && job.author_type === 'person' ? (
                 <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-400">

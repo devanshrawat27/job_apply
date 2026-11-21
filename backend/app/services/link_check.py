@@ -21,7 +21,8 @@ USER_AGENT = (
 )
 
 # Status codes that mean the page exists but blocks bots/logins. Not dead.
-AMBIGUOUS = {401, 403, 429}
+# 999 is LinkedIn's own "we do not serve this to you" answer.
+AMBIGUOUS = {401, 403, 429, 999}
 DEAD = {404, 410}
 
 _SCRIPT_RE = re.compile(r"<(script|style|noscript)[^>]*>.*?</\1>", re.I | re.S)

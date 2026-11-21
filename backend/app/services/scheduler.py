@@ -59,6 +59,11 @@ BARREN_REVIEW_MINUTES = 20
 # Verify application links this often (dead links are hidden from Apply links).
 LINK_CHECK_MINUTES = 10
 
+# LinkedIn's public jobs board is searched on its own timer. It needs no login,
+# so it keeps running while X is paused or disconnected. One search per hour is
+# the safe pace: LinkedIn answers 429 after a couple of quick guest requests.
+LINKEDIN_SCAN_MINUTES = 60
+
 # While idle, like/follow a few hiring posts this often so X fills the feed
 # with hiring content instead of unrelated posts.
 FEED_TRAIN_MINUTES = 60
@@ -88,6 +93,8 @@ class AgentLoop(threading.Thread):
         self._last_feed_train: dict[int | None, datetime] = {}
         # Last time application links were verified.
         self._last_link_check: dict[int | None, datetime] = {}
+        # Last time LinkedIn's jobs board was searched.
+        self._last_linkedin: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -339,6 +346,23 @@ class AgentLoop(threading.Thread):
                     logger.info("user %s redrafted %s held jobs", user_id, redrafted)
             except Exception:  # noqa: BLE001 - never break the loop
                 logger.warning("redraft pass failed for user %s", user_id, exc_info=True)
+                db.rollback()
+
+        # 2d. LinkedIn's public jobs board. It needs no login, so it runs even
+        # when X is paused, and it only ever adds apply links.
+        last_linkedin = self._last_linkedin.get(user_id)
+        linkedin_due = last_linkedin is None or now - last_linkedin >= timedelta(
+            minutes=LINKEDIN_SCAN_MINUTES
+        )
+        if settings_row.linkedin_enabled and linkedin_due:
+            self._last_linkedin[user_id] = now
+            try:
+                li_run = pipeline.scan_linkedin(db, user_id=user_id)
+                logger.info(
+                    "user %s LinkedIn scan: %s %s", user_id, li_run.status, li_run.stats
+                )
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("LinkedIn scan failed for user %s", user_id, exc_info=True)
                 db.rollback()
 
         # 3. Scanning runs on its own schedule and is never starved by the queue.

@@ -172,6 +172,13 @@ class AgentSettings(Base):
     # People whose X inbox is closed. The agent never DMs them again; posts from
     # them still get a public reply when one is possible.
     closed_inbox_handles: Mapped[list] = mapped_column(JSON, default=list)
+    # LinkedIn job discovery needs no login, so it is on by default.
+    linkedin_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Set when LinkedIn answers 429/999. Survives restarts so the agent does not
+    # hammer the same IP again after a reboot.
+    linkedin_pause_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -186,6 +193,10 @@ class JobPost(Base):
     )
 
     post_id: Mapped[str] = mapped_column(String(40), index=True)
+    # x | linkedin - where this job was found.
+    source: Mapped[str] = mapped_column(String(20), default="x", index=True)
+    # The job id on that platform (LinkedIn keeps its own numeric id).
+    source_job_id: Mapped[str] = mapped_column(String(64), default="")
     post_url: Mapped[str] = mapped_column(String(400), default="")
     author_handle: Mapped[str] = mapped_column(String(120), default="")
     author_name: Mapped[str] = mapped_column(String(200), default="")
@@ -375,6 +386,34 @@ class SearchQuery(Base):
     # Replies/DMs received from posts found by this keyword. Real outcome, not
     # just "looks relevant".
     replies: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class LinkedInQuery(Base):
+    """Keyword scoreboard for LinkedIn jobs (separate from the X keywords).
+
+    LinkedIn's search is fuzzy and rate limited, so only a couple of terms run
+    per pass and weak ones are retired instead of retried forever.
+    """
+
+    __tablename__ = "linkedin_query"
+    __table_args__ = (UniqueConstraint("user_id", "keyword", name="uq_linkedin_query_user_keyword"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    keyword: Mapped[str] = mapped_column(String(160), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="candidate")
+    # role | skill | level | curated
+    source: Mapped[str] = mapped_column(String(20), default="role")
+
+    uses: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_seen: Mapped[int] = mapped_column(Integer, default=0)
+    jobs_relevant: Mapped[int] = mapped_column(Integer, default=0)
     score: Mapped[float] = mapped_column(Float, default=0.0)
 
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

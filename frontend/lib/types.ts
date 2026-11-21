@@ -83,11 +83,15 @@ export interface AgentSettings {
   extra_queries: string[]
   chatgpt_browser_enabled: boolean
   closed_inbox_handles?: string[]
+  linkedin_enabled: boolean
+  linkedin_pause_until?: string | null
 }
 
 export interface Job {
   id: number
   post_id: string
+  source: 'x' | 'linkedin'
+  source_job_id: string
   post_url: string
   author_handle: string
   author_name: string

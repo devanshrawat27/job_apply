@@ -1,4 +1,4 @@
-﻿"""The single flow: scan X -> rank -> draft -> decide -> send -> log.
+"""The single flow: scan X -> rank -> draft -> decide -> send -> log.
 
 Everything the product does lives in this module. There is no workflow builder
 and no second pipeline, on purpose.
@@ -17,7 +17,15 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 
-from app.agents import composer, discovery, email_writer, query_lab, spam as spam_guard
+from app.agents import (
+    composer,
+    discovery,
+    email_writer,
+    linkedin_jobs,
+    linkedin_keywords,
+    query_lab,
+    spam as spam_guard,
+)
 from app.agents.resume import format_experience
 from app.models import (
     ActionLog,
@@ -38,6 +46,7 @@ from app.services import (
     email_accounts,
     executor,
     limits,
+    linkedin_guest,
     mailer,
     resume_pick,
     x_dm_api,
@@ -81,6 +90,12 @@ DRAFT_BUDGET_S = 90
 
 # Search is the other slow part: a stuck browser must not hold the whole scan.
 SEARCH_BUDGET_S = 420
+
+# LinkedIn is read through its public jobs endpoints. One search per pass is
+# the safe budget: the board answers 429 after a couple of quick requests. A
+# detail budget can be raised later (a job page is ~10x heavier than a card).
+LINKEDIN_DETAIL_BUDGET = 0
+LINKEDIN_MIN_RELEVANCE = 40
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -597,6 +612,295 @@ def scan(
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         db.rollback()
         logger.exception("scan failed")
+        run.status = "failed"
+        run.error = str(exc)
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+
+def _company_handle(company_url: str, company: str) -> str:
+    match = re.search(r"/company/([^/?#]+)", company_url or "")
+    if match:
+        return match.group(1)[:80]
+    return re.sub(r"[^a-z0-9]+", "-", (company or "").lower()).strip("-")[:80]
+
+
+def scan_linkedin(
+    db: Session,
+    *,
+    manual: bool = False,
+    run: Run | None = None,
+    user_id: int | None = None,
+    detail_budget: int = 0,
+) -> Run:
+    """Find jobs on LinkedIn's public jobs board.
+
+    No login and no cookies: the guest endpoints serve the same cards a
+    logged-out visitor sees. Each pass runs one role search and keeps only cards
+    that pass ``linkedin_jobs.assess``. LinkedIn throttles per-IP after a couple
+    of requests, so detail pages are off by default (``detail_budget=0``); the
+    card already carries title, company, location and posting date.
+    Everything found here is an apply link; nothing is replied to or DMed.
+    """
+    if run is None:
+        run = Run(kind="scan", status="running", user_id=user_id)
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+    stats: dict = {
+        "source": "linkedin",
+        "queries": 0,
+        "keywords": [],
+        "posts_seen": 0,
+        "posts_new": 0,
+        "duplicates": 0,
+        "relevant": 0,
+        "rejected": 0,
+        "rejected_reasons": {},
+        "details_opened": 0,
+        "errors": [],
+    }
+
+    try:
+        profile = get_profile(db, user_id)
+        if profile is None:
+            raise PipelineError("Set up your profile first (upload a resume or fill the form).")
+
+        settings_row = get_settings_row(db, user_id)
+        if not settings_row.linkedin_enabled:
+            run.status = "skipped"
+            run.stats = {**stats, "errors": ["LinkedIn search is turned off"]}
+            run.finished_at = _now()
+            db.commit()
+            return run
+        if not manual and not settings_row.enabled:
+            run.status = "skipped"
+            run.stats = {**stats, "errors": ["agent is paused"]}
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        pause_until = _as_utc(settings_row.linkedin_pause_until)
+        if pause_until is not None and _now() < pause_until:
+            run.status = "skipped"
+            run.stats = {
+                **stats,
+                "errors": [
+                    "LinkedIn is paused after a rate limit until "
+                    + pause_until.strftime("%H:%M UTC")
+                ],
+            }
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        blocked_until = linkedin_guest.cooldown_until()
+        if blocked_until is not None and _now() < blocked_until:
+            run.status = "skipped"
+            run.stats = {
+                **stats,
+                "errors": [
+                    "LinkedIn is cooling down after a block until "
+                    + blocked_until.strftime("%H:%M UTC")
+                ],
+            }
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        keywords = linkedin_keywords.pick_terms(db, profile, user_id)
+        stats["queries"] = len(keywords)
+        stats["keywords"] = [row.keyword for row in keywords]
+        if not keywords:
+            run.status = "completed"
+            run.stats = {**stats, "errors": ["no LinkedIn keywords yet"]}
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        junior = linkedin_jobs.is_junior(profile)
+        experience = (1, 2, 3) if junior else (3, 4, 5)
+        job_types = "F,I,C" if junior else "F,C"
+        since_hours = min(max(int(settings_row.lookback_hours or 24), 24), 168)
+
+        existing_stmt = select(JobPost.post_id)
+        hashes_stmt = select(JobPost.content_hash)
+        if user_id is not None:
+            existing_stmt = existing_stmt.where(JobPost.user_id == user_id)
+            hashes_stmt = hashes_stmt.where(JobPost.user_id == user_id)
+        existing = set(db.scalars(existing_stmt).all())
+        existing_hashes = {value for value in db.scalars(hashes_stmt).all() if value}
+
+        per_keyword = {row.keyword: {"seen": 0, "relevant": 0} for row in keywords}
+        created: list[JobPost] = []
+        details_opened = 0
+        stop = False
+
+        def reject(reason: str) -> None:
+            stats["rejected"] += 1
+            key = " ".join((reason or "not a fit").split())[:90]
+            reasons = stats["rejected_reasons"]
+            reasons[key] = int(reasons.get(key, 0)) + 1
+
+        def remember_block() -> None:
+            until = linkedin_guest.cooldown_until() or (_now() + timedelta(minutes=90))
+            settings_row.linkedin_pause_until = until.replace(tzinfo=None)
+            db.commit()
+
+        for row in keywords:
+            if stop:
+                break
+            try:
+                cards = linkedin_guest.search_jobs(
+                    row.keyword,
+                    since_hours=since_hours,
+                    experience=experience,
+                    job_types=job_types,
+                )
+            except linkedin_guest.LinkedInBlocked as exc:
+                stats["errors"].append(f"LinkedIn paused: {exc.reason}")
+                remember_block()
+                break
+            except linkedin_guest.LinkedInError as exc:
+                stats["errors"].append(f"search failed for '{row.keyword}': {exc}")
+                continue
+
+            stats["posts_seen"] += len(cards)
+            per_keyword[row.keyword]["seen"] += len(cards)
+
+            for card in cards:
+                title = str(card.get("title") or "").strip()
+                if not title:
+                    continue
+
+                # Cheap title gate before spending a detail request.
+                if junior and linkedin_jobs.SENIOR_TITLE_RE.search(title):
+                    reject("senior title")
+                    continue
+                if (
+                    linkedin_jobs.is_tech_profile(profile)
+                    and linkedin_jobs.NON_TECH_TITLE_RE.search(title)
+                ):
+                    reject("not a software role")
+                    continue
+                if not linkedin_jobs.role_points(profile, title):
+                    reject("not one of your target roles")
+                    continue
+
+                post_id = f"li:{card['job_id']}"
+                if post_id in existing:
+                    stats["duplicates"] += 1
+                    continue
+
+                detail: dict = {}
+                if details_opened < detail_budget:
+                    try:
+                        detail = linkedin_guest.job_detail(card["job_id"])
+                    except linkedin_guest.LinkedInBlocked as exc:
+                        stats["errors"].append(f"LinkedIn paused: {exc.reason}")
+                        remember_block()
+                        stop = True
+                        break
+                    except linkedin_guest.LinkedInError as exc:
+                        stats["errors"].append(f"detail failed for {card['job_id']}: {exc}")
+                    details_opened += 1
+                    stats["details_opened"] = details_opened
+
+                verdict = linkedin_jobs.assess(profile, card, detail)
+                if not verdict["ok"]:
+                    reject(str(verdict["reason"]))
+                    continue
+                if int(verdict["relevance"]) < LINKEDIN_MIN_RELEVANCE:
+                    reject(f"weak match (score {verdict['relevance']})")
+                    continue
+
+                company = verdict["company"]
+                location = verdict["location"]
+                fingerprint = discovery.content_fingerprint(
+                    f"{company} {verdict['title']} {location}"
+                )
+                if fingerprint and fingerprint in existing_hashes:
+                    stats["duplicates"] += 1
+                    continue
+
+                apply_url = str(card.get("url") or "") or (
+                    f"https://www.linkedin.com/jobs/view/{card['job_id']}/"
+                )
+                description = str(detail.get("description") or "").strip()
+                header = f"{verdict['title']} at {company}"
+                if location:
+                    header += f"\n{location}"
+                if description:
+                    content = f"{header}\n\n{description}".strip()[:12000]
+                else:
+                    content = (
+                        f"{header}\n\nOpen on LinkedIn to read the full job description "
+                        "and apply."
+                    ).strip()
+
+                job = JobPost(
+                    user_id=user_id,
+                    post_id=post_id,
+                    source="linkedin",
+                    source_job_id=str(card["job_id"]),
+                    post_url=apply_url,
+                    author_handle=_company_handle(detail.get("company_url") or "", company),
+                    author_name=company[:200],
+                    content=content,
+                    content_hash=fingerprint,
+                    posted_at=linkedin_guest.posted_datetime(
+                        card.get("posted_at") or detail.get("posted_at")
+                    ),
+                    query_text=row.keyword,
+                    status="new",
+                    relevance=int(verdict["relevance"]),
+                    company=company[:200],
+                    role=verdict["title"][:200],
+                    job_location=location[:200],
+                    apply_method="link",
+                    outreach_method="link",
+                    apply_url=apply_url[:500],
+                    required_experience_months=int(verdict["required_experience_months"] or 0),
+                    author_type="company",
+                    reason=(
+                        "LinkedIn job - matches your role"
+                        if description
+                        else "LinkedIn job - title match (open it to read the full description)"
+                    ),
+                    spam_score=int(verdict["scam_score"] or 0),
+                    spam_reasons=list(verdict["scam_reasons"] or []),
+                    decision_reason=(
+                        "LinkedIn job - apply on LinkedIn; no reply, DM or email sent"
+                        + ("" if description else " (open it for the full description)")
+                    ),
+                    confidence=0.0,
+                )
+                db.add(job)
+                created.append(job)
+                existing.add(post_id)
+                if fingerprint:
+                    existing_hashes.add(fingerprint)
+                per_keyword[row.keyword]["relevant"] += 1
+                stats["relevant"] += 1
+                _log(job, "found on LinkedIn jobs - added to Apply links")
+
+        db.commit()
+        linkedin_keywords.record(db, keywords, per_keyword)
+        stats["posts_new"] = len(created)
+        run.status = "completed"
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+        db.rollback()
+        logger.exception("LinkedIn scan failed")
         run.status = "failed"
         run.error = str(exc)
         run.stats = stats

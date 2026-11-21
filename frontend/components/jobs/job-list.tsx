@@ -51,7 +51,8 @@ const EMPTY: Record<string, { title: string; description: string }> = {
   },
   all: {
     title: 'No posts yet',
-    description: 'The agent scans X automatically every 30 minutes. Fresh posts appear here.',
+    description:
+      'The agent scans X and LinkedIn automatically. Fresh jobs appear here within a few minutes.',
   },
 }
 
@@ -65,6 +66,7 @@ export function JobList({
   onChanged: () => Promise<void>
 }) {
   const [filter, setFilter] = useState('pending_approval')
+  const [source, setSource] = useState<'all' | 'x' | 'linkedin'>('all')
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -72,17 +74,23 @@ export function JobList({
   const load = useCallback(async () => {
     try {
       setError('')
+      const sourceFilter = source === 'all' ? undefined : source
       setJobs(
         mode === 'links'
-          ? await api.jobs({ has_link: true, open_only: true, sort: 'best' })
-          : await api.jobs({ status: filter }),
+          ? await api.jobs({
+              has_link: true,
+              open_only: true,
+              sort: 'best',
+              source: sourceFilter,
+            })
+          : await api.jobs({ status: filter, source: sourceFilter }),
       )
     } catch (err) {
       setError((err as Error).message)
     } finally {
       setLoading(false)
     }
-  }, [filter, mode])
+  }, [filter, mode, source])
 
   useEffect(() => {
     setLoading(true)
@@ -137,6 +145,31 @@ export function JobList({
           ))}
         </div>
       ) : null}
+
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="text-muted-foreground">Source</span>
+        {(
+          [
+            { key: 'all', label: 'All' },
+            { key: 'x', label: 'X' },
+            { key: 'linkedin', label: 'LinkedIn' },
+          ] as const
+        ).map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            aria-pressed={source === item.key}
+            onClick={() => setSource(item.key)}
+            className={
+              source === item.key
+                ? 'rounded-full border border-foreground/30 bg-foreground/5 px-3 py-1 font-medium text-foreground'
+                : 'rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:text-foreground'
+            }
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
 
       {loading ? (
         <div className="flex flex-col gap-2">

@@ -193,6 +193,7 @@ export const api = {
   jobs: (params: {
     status?: string
     q?: string
+    source?: 'x' | 'linkedin'
     has_link?: boolean
     open_only?: boolean
     sort?: string
@@ -200,6 +201,7 @@ export const api = {
     const search = new URLSearchParams()
     if (params.status && params.status !== 'all') search.set('status', params.status)
     if (params.q) search.set('q', params.q)
+    if (params.source) search.set('source', params.source)
     if (params.has_link) search.set('has_link', 'true')
     if (params.open_only) search.set('open_only', 'true')
     if (params.sort) search.set('sort', params.sort)

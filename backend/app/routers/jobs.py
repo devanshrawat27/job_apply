@@ -46,6 +46,7 @@ def _owned(db: Session, job_id: int, user: CurrentUser) -> JobPost:
 def list_jobs(
     status: str | None = Query(default=None),
     q: str | None = Query(default=None),
+    source: str | None = Query(default=None),
     has_link: bool = Query(default=False),
     open_only: bool = Query(default=False),
     sort: str | None = Query(default=None),
@@ -77,6 +78,10 @@ def list_jobs(
         if status not in VALID_STATUSES:
             raise HTTPException(status_code=400, detail=f"unknown status '{status}'")
         stmt = stmt.where(JobPost.status == status)
+    if source and source != "all":
+        if source not in ("x", "linkedin"):
+            raise HTTPException(status_code=400, detail=f"unknown source '{source}'")
+        stmt = stmt.where(JobPost.source == source)
     if has_link:
         stmt = stmt.where(
             JobPost.apply_url.isnot(None),
@@ -103,12 +108,18 @@ def job_stats(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
         stmt = stmt.where(JobPost.user_id == uid)
     rows = db.execute(stmt.group_by(JobPost.status)).all()
     by_status = {status: count for status, count in rows}
+    source_stmt = select(JobPost.source, func.count(JobPost.id))
+    if uid is not None:
+        source_stmt = source_stmt.where(JobPost.user_id == uid)
+    source_rows = db.execute(source_stmt.group_by(JobPost.source)).all()
+    by_source = {(source or "x"): count for source, count in source_rows}
     sent_stmt = select(func.count(JobPost.id)).where(JobPost.status == "sent")
     if uid is not None:
         sent_stmt = sent_stmt.where(JobPost.user_id == uid)
     sent = db.scalar(sent_stmt) or 0
     return {
         "by_status": by_status,
+        "by_source": by_source,
         "total": sum(by_status.values()),
         "sent": int(sent),
         "pending_approval": by_status.get("pending_approval", 0),

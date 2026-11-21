@@ -60,7 +60,10 @@ def _column_default_sql(column) -> str:
         python_type = str
 
     if python_type is bool:
-        return " DEFAULT 0"
+        # A boolean column whose Python default is True (e.g. LinkedIn search)
+        # must come back enabled for existing rows, not 0.
+        default = getattr(column.default, "arg", False) if column.default is not None else False
+        return " DEFAULT 1" if default is True else " DEFAULT 0"
     if python_type in (int, float):
         return " DEFAULT 0"
     if python_type in (list, dict):

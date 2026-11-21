@@ -491,6 +491,25 @@ export default function SettingsPage() {
             hint="Used when X blocks a DM, and as a nudge when someone has not replied."
           />
 
+          <Separator />
+
+          <Toggle
+            checked={Boolean(form.linkedin_enabled)}
+            onChange={(linkedin_enabled) => patch({ linkedin_enabled })}
+            label="Find jobs on LinkedIn"
+            hint="Reads LinkedIn's public jobs board every hour. No login needed; each job opens on LinkedIn."
+          />
+          {form.linkedin_pause_until ? (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              LinkedIn paused until{' '}
+              {new Date(form.linkedin_pause_until).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}{' '}
+              after a rate limit. It resumes by itself.
+            </p>
+          ) : null}
+
           <details className="rounded-xl border border-border px-3 py-2">
             <summary className="cursor-pointer text-xs text-muted-foreground">
               Advanced — add your own search queries

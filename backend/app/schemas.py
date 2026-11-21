@@ -129,6 +129,7 @@ class SettingsIn(BaseModel):
     extra_queries: list[str] | None = None
     chatgpt_browser_enabled: bool | None = None
     closed_inbox_handles: list[str] | None = None
+    linkedin_enabled: bool | None = None
 
 
 class SettingsOut(BaseModel):
@@ -150,7 +151,8 @@ class SettingsOut(BaseModel):
     extra_queries: list[str]
     chatgpt_browser_enabled: bool
     closed_inbox_handles: list[str] = []
-
+    linkedin_enabled: bool = True
+    linkedin_pause_until: datetime | None = None
     model_config = {"from_attributes": True}
 
 
@@ -159,6 +161,8 @@ class SettingsOut(BaseModel):
 class JobOut(BaseModel):
     id: int
     post_id: str
+    source: str = "x"
+    source_job_id: str = ""
     post_url: str
     author_handle: str
     author_name: str
