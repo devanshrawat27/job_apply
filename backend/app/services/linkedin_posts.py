@@ -131,8 +131,11 @@ def check_session(credentials: dict[str, str]) -> tuple[bool, str]:
             response = client.get(f"{BASE}{ME}")
     except httpx.HTTPError:
         return True, ""
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
         return False, "LinkedIn rejected the session"
+    if response.status_code == 403:
+        # A permission/bot check is ambiguous; do not force a reconnect.
+        return True, ""
     if 300 <= response.status_code < 400:
         location = response.headers.get("location", "")
         if "/login" in location or "/authwall" in location or "/checkpoint" in location:
@@ -221,8 +224,11 @@ def search_posts(
     except httpx.HTTPError as exc:
         raise PostsUnavailable(f"could not reach LinkedIn: {exc}") from exc
 
-    if response.status_code in (401, 403):
+    if response.status_code == 401:
         raise PostsAuthRequired("LinkedIn rejected the session")
+    if response.status_code == 403:
+        _block("HTTP 403")
+        raise PostsBlocked("LinkedIn refused the post search (HTTP 403)")
     if response.status_code in (429, 999):
         _block(f"HTTP {response.status_code}")
         raise PostsBlocked(f"LinkedIn rate limit (HTTP {response.status_code})")
