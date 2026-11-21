@@ -23,7 +23,7 @@ CARD = """
         <a href="https://www.linkedin.com/company/acme-labs?trk=x">Acme Labs</a>
       </h4>
       <span class="job-search-card__location">Remote, India</span>
-      <time class="job-search-card__listdate" datetime="2026-11-21">1 day ago</time>
+      <time class="job-search-card__listdate" datetime="2026-11-21">1 hour ago</time>
     </div>
   </div>
 </li>
@@ -118,6 +118,14 @@ def test_a_duplicated_card_title_is_cleaned():
         == "AI-Assisted Full Stack Developer Intern - Remoter (Part-Time)"
     )
     assert linkedin_guest.clean_title("Python Developer") == "Python Developer"
+
+
+def test_card_age_is_read_in_minutes():
+    assert linkedin_guest.posted_age_minutes("30 minutes ago") == 30
+    assert linkedin_guest.posted_age_minutes("1 hour ago") == 60
+    assert linkedin_guest.posted_age_minutes("3 hours ago") == 180
+    assert linkedin_guest.posted_age_minutes("1 day ago") == 1440
+    assert linkedin_guest.posted_age_minutes("") is None
 
 
 def test_a_good_listing_passes_and_scores():

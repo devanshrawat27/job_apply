@@ -96,6 +96,10 @@ SEARCH_BUDGET_S = 420
 # detail budget can be raised later (a job page is ~10x heavier than a card).
 LINKEDIN_DETAIL_BUDGET = 0
 LINKEDIN_MIN_RELEVANCE = 40
+# LinkedIn is crowded: a job that is already a few hours old has hundreds of
+# applicants. Only listings posted inside this window are added. Existing rows
+# are never removed; the rule applies to new discoveries only.
+LINKEDIN_MAX_AGE_MINUTES = 120
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -650,11 +654,12 @@ def scan_linkedin(
     """Find jobs on LinkedIn's public jobs board.
 
     No login and no cookies: the guest endpoints serve the same cards a
-    logged-out visitor sees. Each pass runs one role search and keeps only cards
-    that pass ``linkedin_jobs.assess``. LinkedIn throttles per-IP after a couple
-    of requests, so detail pages are off by default (``detail_budget=0``); the
-    card already carries title, company, location and posting date.
-    Everything found here is an apply link; nothing is replied to or DMed.
+    logged-out visitor sees. Only cards posted in the last two hours are added
+    (LinkedIn jobs fill up fast), and a pass runs one role search because the
+    board throttles per-IP after a couple of requests. Detail pages are off by
+    default (``detail_budget=0``); the card carries title, company, location and
+    posting time. Everything found here is an apply link; nothing is replied to
+    or DMed.
     """
     if run is None:
         run = Run(kind="scan", status="running", user_id=user_id)
@@ -736,7 +741,7 @@ def scan_linkedin(
         junior = linkedin_jobs.is_junior(profile)
         experience = (1, 2, 3) if junior else (3, 4, 5)
         job_types = "F,I,C" if junior else "F,C"
-        since_hours = min(max(int(settings_row.lookback_hours or 24), 24), 168)
+        since_hours = max(1, LINKEDIN_MAX_AGE_MINUTES // 60)
 
         existing_stmt = select(JobPost.post_id)
         hashes_stmt = select(JobPost.content_hash)
@@ -805,6 +810,15 @@ def scan_linkedin(
                     reject("not one of your target roles")
                     continue
 
+                posted_value = card.get("posted_text") or card.get("posted_at")
+                age_minutes = linkedin_guest.posted_age_minutes(posted_value)
+                if age_minutes is None or age_minutes > LINKEDIN_MAX_AGE_MINUTES:
+                    reject(
+                        f"older than {LINKEDIN_MAX_AGE_MINUTES // 60} hours"
+                        + (f" ({posted_value})" if posted_value else "")
+                    )
+                    continue
+
                 post_id = f"li:{card['job_id']}"
                 if post_id in existing:
                     stats["duplicates"] += 1
@@ -867,7 +881,10 @@ def scan_linkedin(
                     content=content,
                     content_hash=fingerprint,
                     posted_at=linkedin_guest.posted_datetime(
-                        card.get("posted_at") or detail.get("posted_at")
+                        card.get("posted_text")
+                        or card.get("posted_at")
+                        or detail.get("posted_text")
+                        or detail.get("posted_at")
                     ),
                     query_text=row.keyword,
                     status="new",

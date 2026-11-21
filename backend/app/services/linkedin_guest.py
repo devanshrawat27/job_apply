@@ -258,9 +258,12 @@ def parse_search_cards(body: str) -> list[dict]:
         location = _first(
             r'class="[^"]*job-search-card__location[^"]*"[^>]*>(.*?)</span>', block
         )
+        posted_text = _first(
+            r'class="[^"]*job-search-card__listdate[^"]*"[^>]*>(.*?)</time>', block
+        )
         posted = _attr(r"<time[^>]*datetime=\"([^\"]+)\"", block)
         if not posted:
-            posted = _first(r'class="[^"]*job-search-card__listdate[^"]*"[^>]*>(.*?)</time>', block)
+            posted = posted_text
         href = _attr(r'class="[^"]*base-card__full-link[^"]*"[^>]*href="([^"]+)"', block)
         company_url = _attr(
             r'class="[^"]*base-search-card__subtitle[^"]*"[\s\S]*?<a[^>]*href="([^"]+)"',
@@ -273,6 +276,7 @@ def parse_search_cards(body: str) -> list[dict]:
                 "company": company,
                 "location": location,
                 "posted_at": posted,
+                "posted_text": posted_text or posted,
                 "url": normalize_job_url(href, job_id),
                 "company_url": company_url.split("?")[0] if company_url else "",
             }
@@ -333,6 +337,7 @@ def parse_detail(body: str, job_id: str = "") -> dict:
         "company_url": company_url.split("?")[0] if company_url else "",
         "applicants": applicants,
         "posted_at": posted,
+        "posted_text": posted,
         "seniority": criteria.get("seniority level", ""),
         "employment_type": criteria.get("employment type", ""),
         "job_function": criteria.get("job function", ""),
@@ -377,6 +382,32 @@ def job_detail(job_id: str) -> dict:
     return parse_detail(body, job_id=str(job_id))
 
 
+def posted_age_minutes(value) -> int | None:
+    """Age in minutes from a LinkedIn relative time ("2 hours ago", "30 minutes")."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    if "just" in text or text in ("now", "today"):
+        return 0
+    match = re.search(r"(\d+)\s*(minute|hour|day|week|month)", text)
+    if match:
+        count = int(match.group(1))
+        unit = match.group(2)
+        if unit == "minute":
+            return count
+        if unit == "hour":
+            return count * 60
+        if unit == "day":
+            return count * 60 * 24
+        if unit == "week":
+            return count * 60 * 24 * 7
+        return count * 60 * 24 * 30
+    parsed = posted_datetime(text)
+    if parsed is None:
+        return None
+    return max(0, int((datetime.now(timezone.utc) - parsed).total_seconds() // 60))
+
+
 def posted_datetime(value) -> datetime | None:
     """Best-effort date from a card/detail value ("2026-11-20", "2 days ago")."""
     text = str(value or "").strip()
@@ -390,19 +421,19 @@ def posted_datetime(value) -> datetime | None:
     except ValueError:
         pass
     lowered = text.lower()
-    hours = 0
+    minutes = 0
     number = re.search(r"(\d+)", lowered)
     count = int(number.group(1)) if number else 0
     if "minute" in lowered:
-        hours = 0
+        minutes = count
     elif "hour" in lowered:
-        hours = count
+        minutes = count * 60
     elif "day" in lowered:
-        hours = count * 24
+        minutes = count * 60 * 24
     elif "week" in lowered:
-        hours = count * 24 * 7
+        minutes = count * 60 * 24 * 7
     elif "month" in lowered:
-        hours = count * 24 * 30
+        minutes = count * 60 * 24 * 30
     else:
         return None
-    return datetime.now(timezone.utc) - timedelta(hours=hours)
+    return datetime.now(timezone.utc) - timedelta(minutes=minutes)
