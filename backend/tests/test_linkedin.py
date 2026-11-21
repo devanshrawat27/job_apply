@@ -260,3 +260,32 @@ def test_scan_is_skipped_when_linkedin_is_off(db):
     run = pipeline.scan_linkedin(db, manual=True)
     assert run.status == "skipped"
     assert "turned off" in run.stats["errors"][0]
+
+
+def test_stale_linkedin_jobs_leave_the_list(db):
+    from datetime import datetime, timedelta, timezone
+
+    fresh = JobPost(
+        user_id=None,
+        post_id="li:fresh",
+        source="linkedin",
+        status="new",
+        posted_at=datetime.now(timezone.utc) - timedelta(minutes=30),
+    )
+    old = JobPost(
+        user_id=None,
+        post_id="li:old",
+        source="linkedin",
+        status="new",
+        posted_at=datetime.now(timezone.utc) - timedelta(hours=3),
+    )
+    db.add_all([fresh, old])
+    db.commit()
+
+    expired = pipeline.expire_stale_linkedin(db)
+    assert expired == 1
+    db.refresh(fresh)
+    db.refresh(old)
+    assert fresh.status == "new"
+    assert old.status == "rejected"
+    assert "older than 2 hours" in old.decision_reason

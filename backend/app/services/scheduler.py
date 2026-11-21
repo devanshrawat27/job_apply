@@ -349,7 +349,18 @@ class AgentLoop(threading.Thread):
                 db.rollback()
 
         # 2d. LinkedIn's public jobs board. It needs no login, so it runs even
-        # when X is paused, and it only ever adds apply links.
+        # when X is paused, and it only ever adds apply links. Stale LinkedIn
+        # jobs leave the list after two hours; the board is too crowded to keep
+        # old listings in front of the human.
+        if settings_row.linkedin_enabled:
+            try:
+                expired = pipeline.expire_stale_linkedin(db, user_id)
+                if expired:
+                    logger.info("user %s closed %s stale LinkedIn jobs", user_id, expired)
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("LinkedIn freshness pass failed for user %s", user_id, exc_info=True)
+                db.rollback()
+
         last_linkedin = self._last_linkedin.get(user_id)
         linkedin_due = last_linkedin is None or now - last_linkedin >= timedelta(
             minutes=LINKEDIN_SCAN_MINUTES

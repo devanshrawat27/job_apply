@@ -636,6 +636,44 @@ def scan(
         return run
 
 
+def expire_stale_linkedin(
+    db: Session,
+    user_id: int | None = None,
+    max_age_minutes: int = LINKEDIN_MAX_AGE_MINUTES,
+) -> int:
+    """Close LinkedIn listings that are older than the freshness window.
+
+    The jobs board is crowded; a listing that has been open for a few hours
+    already has hundreds of applicants. These rows stay in history as rejected
+    (with the reason), but they leave Apply links and Approvals.
+    """
+    cutoff = _now() - timedelta(minutes=max_age_minutes)
+    stmt = select(JobPost).where(
+        JobPost.source == "linkedin",
+        JobPost.status.in_(("new", "pending_approval", "queued")),
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+    expired = 0
+    for job in db.scalars(stmt).all():
+        posted = _as_utc(job.posted_at) or _as_utc(job.discovered_at)
+        if posted is not None and posted >= cutoff:
+            continue
+        job.status = "rejected"
+        job.decision_reason = (
+            f"older than {max_age_minutes // 60} hours - LinkedIn jobs fill up fast"
+        )
+        job.reply_text = ""
+        job.dm_text = ""
+        job.email_body = ""
+        job.email_subject = ""
+        _log(job, job.decision_reason)
+        expired += 1
+    if expired:
+        db.commit()
+    return expired
+
+
 def _company_handle(company_url: str, company: str) -> str:
     match = re.search(r"/company/([^/?#]+)", company_url or "")
     if match:
