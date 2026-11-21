@@ -778,7 +778,10 @@ def scan_linkedin(
                     continue
 
                 # Cheap title gate before spending a detail request.
-                if junior and linkedin_jobs.SENIOR_TITLE_RE.search(title):
+                if junior and (
+                    linkedin_jobs.SENIOR_TITLE_RE.search(title)
+                    or linkedin_jobs.LEVEL_NUMBER_RE.search(title)
+                ):
                     reject("senior title")
                     continue
                 if (

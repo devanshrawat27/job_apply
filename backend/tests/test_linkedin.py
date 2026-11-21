@@ -133,6 +133,9 @@ def test_senior_and_non_tech_titles_are_rejected():
     senior = dict(linkedin_guest.parse_detail(DETAIL), title="Senior Python Developer")
     assert linkedin_jobs.assess(make_profile(), {}, senior)["ok"] is False
 
+    mid = dict(linkedin_guest.parse_detail(DETAIL), title="Software Engineer 2")
+    assert linkedin_jobs.assess(make_profile(), {}, mid)["ok"] is False
+
     sales = dict(linkedin_guest.parse_detail(DETAIL), title="Sales Executive", company="Acme")
     verdict = linkedin_jobs.assess(make_profile(), {}, sales)
     assert verdict["ok"] is False

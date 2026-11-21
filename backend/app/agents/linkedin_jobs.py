@@ -29,6 +29,13 @@ SENIOR_TITLE_RE = re.compile(
     re.I,
 )
 
+# "Software Engineer 2" / "Developer II" is a mid-level title even without the
+# word "senior". An early-career candidate should not get it.
+LEVEL_NUMBER_RE = re.compile(
+    r"\b(?:engineer|developer|sde|analyst|consultant|programmer)\s*(?:2|ii|3|iii|iv)\b",
+    re.I,
+)
+
 # The work has to be a build job, not a sales/support job with "engineer" in it.
 TECH_TITLE_RE = re.compile(
     r"\b(software|developer|engineer|engineering|sde|programmer|full[ -]?stack|"
@@ -195,8 +202,10 @@ def assess(profile: Profile, card: dict, detail: dict) -> dict:
         result["reason"] = "listing has no company name"
         return result
 
-    if is_junior(profile) and SENIOR_TITLE_RE.search(title):
-        result["reason"] = f"senior title for an early-career candidate ({title})"
+    if is_junior(profile) and (
+        SENIOR_TITLE_RE.search(title) or LEVEL_NUMBER_RE.search(title)
+    ):
+        result["reason"] = f"senior or mid-level title for an early-career candidate ({title})"
         return result
     if NON_TECH_TITLE_RE.search(title) and is_tech_profile(profile):
         result["reason"] = f"not a software role ({title})"
