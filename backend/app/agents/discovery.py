@@ -356,7 +356,8 @@ _NON_TECH_SIGNALS = (
     "call center", "data entry", "virtual assistant", "administrative",
     "receptionist", "telemarketing", "telesales", "bank teller", "bookkeeping",
     "accountant", "insurance", "banking", "retail", "warehouse", "tutor",
-    "teacher", "nurse", "security guard", "civil engineer", "mechanical engineer",
+    "teacher", "lecturer", "lecturing", "professor", "faculty", "academic",
+    "nurse", "security guard", "civil engineer", "mechanical engineer",
     "video editor", "video editing", "shorts editor", "motion designer",
     "content creator", "thumbnail designer", "voiceover", "voice over",
     "compliance", "legal counsel", "audit", "risk management", "underwriting",
@@ -369,7 +370,7 @@ _CLEAR_NON_TECH_ROLES = (
     "call center", "data entry", "virtual assistant", "receptionist",
     "sales consultant", "telemarketing", "telesales", "bank teller",
     "bookkeeping", "civil engineer", "mechanical engineer", "retail assistant",
-    "security guard", "warehouse assistant",
+    "security guard", "warehouse assistant", "lecturer", "professor", "faculty",
 )
 
 # Terms that genuinely describe a software job. Generic words like "developer"
@@ -395,6 +396,68 @@ def _has_signal(text: str, signal: str) -> bool:
     return signal in text
 
 
+# Tech stacks that are not transferable from a normal web/backend resume. A
+# post that asks for one of these is rejected instead of being parked in
+# Approvals with "does not match your background". The candidate's own resume
+# is checked first, so someone who really has SAP/ABAP is not blocked.
+_STACK_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("SAP / ABAP", ("sap", "abap", "s/4hana", "sapui5", "fiori", "hana")),
+    ("Salesforce", ("salesforce", "apex", "visualforce", "lwc")),
+    ("ServiceNow", ("servicenow", "service now")),
+    ("Workday", ("workday",)),
+    ("Oracle ERP", ("oracle ebs", "oracle fusion", "peoplesoft", "jd edwards", "oracle apps")),
+    ("mainframe", ("cobol", "mainframe", "jcl", "cics", "vsam")),
+    ("embedded / firmware", ("embedded", "firmware", "rtos", "microcontroller", "verilog", "vhdl")),
+)
+
+
+def _stack_mention(text: str, term: str) -> bool:
+    """True unless the term only appears as a company ("at Salesforce")."""
+    for match in re.finditer(rf"\b{re.escape(term)}\b", text or ""):
+        before = text[max(0, match.start() - 8) : match.start()].strip().lower()
+        if before.endswith("at") or before.endswith("join") or before.endswith("@"):
+            continue
+        return True
+    return False
+
+
+def stack_mismatch(profile: Profile, text: str) -> str | None:
+    if (profile.domain or "tech") != "tech":
+        return None
+    head = " ".join((text or "").split())[:400].lower()
+    if not head:
+        return None
+    resume = " ".join(
+        [
+            " ".join(str(skill) for skill in (profile.skills or [])),
+            " ".join(str(role) for role in (profile.target_roles or [])),
+            profile.current_role or "",
+            profile.job_title or "",
+            (profile.resume_text or "")[:2500],
+        ]
+    ).lower()
+    role_word = bool(
+        re.search(
+            r"\b(developer|engineer|consultant|analyst|architect|administrator|admin|specialist)\b",
+            head,
+        )
+    )
+    for label, terms in _STACK_GROUPS:
+        hits = [term for term in terms if _stack_mention(head, term)]
+        if not hits:
+            continue
+        if any(_stack_mention(resume, term) for term in terms):
+            continue
+        # "SAP" alone is ambiguous (it is also a company), so require a second
+        # SAP-family term. Every other stack term is distinctive enough.
+        if label == "SAP / ABAP" and len(hits) < 2:
+            continue
+        if not role_word:
+            continue
+        return f"requires {label} experience, which is not in your resume"
+    return None
+
+
 def domain_mismatch(profile: Profile, text: str) -> str | None:
     """Stop a tech resume from getting non-tech posts, and vice versa."""
     domain = profile.domain or "tech"
@@ -414,6 +477,9 @@ def domain_mismatch(profile: Profile, text: str) -> str | None:
             return "does not look like a technical role"
     if domain == "non-tech" and looks_tech and not looks_non_tech:
         return "looks like a tech role"
+    stack = stack_mismatch(profile, text)
+    if stack:
+        return stack
     return None
 
 

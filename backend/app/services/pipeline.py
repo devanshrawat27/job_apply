@@ -575,6 +575,17 @@ def scan(
                 _log(job, job.decision_reason)
                 continue
 
+            if job.confidence <= 0.15 and not (job.dm_text or job.email_body):
+                # The model was not sure and produced nothing usable. This is
+                # not a job for the human to review; it is a no.
+                job.status = "rejected"
+                job.decision_reason = "the model was not confident and wrote no usable draft"
+                job.reply_text = ""
+                job.dm_text = ""
+                stats["rejected"] += 1
+                _log(job, job.decision_reason)
+                continue
+
             blockers = composer.blockers_for(job, draft)
             allowed, dm_count, dm_reason = dm_followup_allowed(db, job)
             if not allowed:
@@ -1136,6 +1147,9 @@ def redraft_waiting(db: Session, user_id: int | None, limit: int = 3) -> int:
         elif composer.auto_reject_reason(draft.get("uncertainties")):
             job.status = "rejected"
             job.decision_reason = "not a fit per the model - rejected"
+        elif float(draft["confidence"]) <= 0.15 and not (job.dm_text or job.email_body):
+            job.status = "rejected"
+            job.decision_reason = "the model was not confident and wrote no usable draft"
         elif float(draft["confidence"]) >= settings_row.auto_send_confidence:
             job.status = "queued"
             job.decision_reason = (
