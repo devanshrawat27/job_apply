@@ -113,13 +113,39 @@ def job_stats(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
         source_stmt = source_stmt.where(JobPost.user_id == uid)
     source_rows = db.execute(source_stmt.group_by(JobPost.source)).all()
     by_source = {(source or "x"): count for source, count in source_rows}
+
+    pair_stmt = select(JobPost.status, JobPost.source, func.count(JobPost.id))
+    if uid is not None:
+        pair_stmt = pair_stmt.where(JobPost.user_id == uid)
+    by_status_source: dict[str, dict[str, int]] = {}
+    for status, source, count in db.execute(
+        pair_stmt.group_by(JobPost.status, JobPost.source)
+    ).all():
+        by_status_source.setdefault(status, {})[(source or "x")] = count
+
+    link_stmt = select(JobPost.source, func.count(JobPost.id)).where(
+        JobPost.apply_url.isnot(None),
+        JobPost.apply_url != "",
+        JobPost.link_dead.is_(False),
+        JobPost.status.in_(pipeline.OPEN_LINK_STATUSES),
+    )
+    if uid is not None:
+        link_stmt = link_stmt.where(JobPost.user_id == uid)
+    apply_links_by_source = {
+        (source or "x"): count
+        for source, count in db.execute(link_stmt.group_by(JobPost.source)).all()
+    }
+
     sent_stmt = select(func.count(JobPost.id)).where(JobPost.status == "sent")
     if uid is not None:
         sent_stmt = sent_stmt.where(JobPost.user_id == uid)
     sent = db.scalar(sent_stmt) or 0
     return {
         "by_status": by_status,
+        "by_status_source": by_status_source,
         "by_source": by_source,
+        "apply_links_by_source": apply_links_by_source,
+        "pending_by_source": by_status_source.get("pending_approval", {}),
         "total": sum(by_status.values()),
         "sent": int(sent),
         "pending_approval": by_status.get("pending_approval", 0),

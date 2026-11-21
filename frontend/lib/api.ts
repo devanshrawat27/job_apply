@@ -211,6 +211,10 @@ export const api = {
   jobStats: () =>
     request<{
       by_status: Record<string, number>
+      by_status_source: Record<string, Record<string, number>>
+      by_source: Record<string, number>
+      apply_links_by_source: Record<string, number>
+      pending_by_source: Record<string, number>
       total: number
       sent: number
       pending: number

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2Icon, SearchIcon } from 'lucide-react'
 
 import { JobCard } from '@/components/jobs/job-card'
+import { PlatformSwitch, type Platform } from '@/components/jobs/platform-switch'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Skeleton } from '@/components/ui/misc'
 import { api } from '@/lib/api'
@@ -56,6 +57,10 @@ const EMPTY: Record<string, { title: string; description: string }> = {
   },
 }
 
+const PLATFORM_KEY = 'jobpilot.platform'
+
+type JobStats = Awaited<ReturnType<typeof api.jobStats>>
+
 export function JobList({
   mode,
   refreshKey,
@@ -66,25 +71,41 @@ export function JobList({
   onChanged: () => Promise<void>
 }) {
   const [filter, setFilter] = useState('pending_approval')
-  const [source, setSource] = useState<'all' | 'x' | 'linkedin'>('all')
+  const [source, setSource] = useState<Platform>('all')
+  const [stats, setStats] = useState<JobStats | null>(null)
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+
+  // The platform choice follows the person across Found jobs, Apply links and
+  // Approvals instead of resetting on every page.
+  useEffect(() => {
+    const saved = window.localStorage.getItem(PLATFORM_KEY)
+    if (saved === 'x' || saved === 'linkedin' || saved === 'all') setSource(saved)
+  }, [])
+
+  function changePlatform(next: Platform) {
+    setSource(next)
+    window.localStorage.setItem(PLATFORM_KEY, next)
+  }
 
   const load = useCallback(async () => {
     try {
       setError('')
       const sourceFilter = source === 'all' ? undefined : source
-      setJobs(
+      const [rows, totals] = await Promise.all([
         mode === 'links'
-          ? await api.jobs({
+          ? api.jobs({
               has_link: true,
               open_only: true,
               sort: 'best',
               source: sourceFilter,
             })
-          : await api.jobs({ status: filter, source: sourceFilter }),
-      )
+          : api.jobs({ status: filter, source: sourceFilter }),
+        api.jobStats(),
+      ])
+      setJobs(rows)
+      setStats(totals)
     } catch (err) {
       setError((err as Error).message)
     } finally {
@@ -117,6 +138,20 @@ export function JobList({
     await onChanged()
   }
 
+  const baseCounts =
+    mode === 'links'
+      ? stats?.apply_links_by_source
+      : mode === 'review'
+        ? stats?.pending_by_source
+        : filter === 'all'
+          ? stats?.by_source
+          : stats?.by_status_source?.[filter]
+  const counts: Record<Platform, number> = {
+    x: baseCounts?.x ?? 0,
+    linkedin: baseCounts?.linkedin ?? 0,
+    all: (baseCounts?.x ?? 0) + (baseCounts?.linkedin ?? 0),
+  }
+
   return (
     <div className="flex flex-col gap-4">
       {error ? (
@@ -125,6 +160,8 @@ export function JobList({
           <AlertDescription>{friendlyError(error)}</AlertDescription>
         </Alert>
       ) : null}
+
+      <PlatformSwitch value={source} onChange={changePlatform} counts={counts} />
 
       {mode === 'all' ? (
         <div className="inline-flex flex-wrap gap-1 rounded-xl border border-border bg-muted/30 p-1">
@@ -145,31 +182,6 @@ export function JobList({
           ))}
         </div>
       ) : null}
-
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-muted-foreground">Source</span>
-        {(
-          [
-            { key: 'all', label: 'All' },
-            { key: 'x', label: 'X' },
-            { key: 'linkedin', label: 'LinkedIn' },
-          ] as const
-        ).map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            aria-pressed={source === item.key}
-            onClick={() => setSource(item.key)}
-            className={
-              source === item.key
-                ? 'rounded-full border border-foreground/30 bg-foreground/5 px-3 py-1 font-medium text-foreground'
-                : 'rounded-full border border-border px-3 py-1 text-muted-foreground transition-colors hover:text-foreground'
-            }
-          >
-            {item.label}
-          </button>
-        ))}
-      </div>
 
       {loading ? (
         <div className="flex flex-col gap-2">
