@@ -10,8 +10,9 @@ from sqlalchemy import delete, select
 
 from app.agents import linkedin_jobs
 from app.database import SessionLocal
-from app.models import AgentSettings, JobPost, LinkedInQuery, Profile, Run
-from app.services import linkedin_guest, pipeline
+from app.models import AgentSettings, JobPost, LinkedInAccount, LinkedInQuery, Profile, Run
+from app.security import encrypt_credentials
+from app.services import linkedin_guest, linkedin_posts, pipeline
 
 CARD = """
 <li>
@@ -74,7 +75,7 @@ def make_profile() -> Profile:
 def db():
     linkedin_guest.reset_cooldown()
     session = SessionLocal()
-    for model in (JobPost, Run, LinkedInQuery):
+    for model in (JobPost, Run, LinkedInQuery, LinkedInAccount):
         session.execute(delete(model))
     session.execute(delete(AgentSettings))
     session.execute(delete(Profile))
@@ -260,6 +261,54 @@ def test_scan_is_skipped_when_linkedin_is_off(db):
     run = pipeline.scan_linkedin(db, manual=True)
     assert run.status == "skipped"
     assert "turned off" in run.stats["errors"][0]
+
+
+def test_linkedin_post_scan_creates_a_post_card(db, monkeypatch):
+    from datetime import datetime, timedelta, timezone
+
+    db.add(make_profile())
+    db.add(AgentSettings(id=1, enabled=True, linkedin_posts_enabled=True))
+    db.add(
+        LinkedInAccount(
+            user_id=None,
+            email="dev@example.com",
+            session_ciphertext=encrypt_credentials(
+                {"li_at": "cookie", "JSESSIONID": '"ajax:1"'}
+            ),
+            status="connected",
+        )
+    )
+    db.commit()
+
+    monkeypatch.setattr(linkedin_posts, "check_session", lambda creds: (True, ""))
+    monkeypatch.setattr(
+        linkedin_posts,
+        "search_posts",
+        lambda *args, **kwargs: [
+            {
+                "post_id": "7000000000000000009",
+                "post_url": "https://www.linkedin.com/posts/jane-doe_hiring-activity-7000000000000000009/",
+                "author_name": "Jane Doe",
+                "author_profile_url": "https://www.linkedin.com/in/jane-doe/",
+                "content": (
+                    "We are hiring 4 React developers at Acme Labs. Remote, 0-2 years welcome. "
+                    "Apply with your resume."
+                ),
+                "posted_at": datetime.now(timezone.utc) - timedelta(minutes=30),
+            }
+        ],
+    )
+
+    run = pipeline.scan_linkedin_posts(db, manual=True)
+    assert run.status == "completed", run.error
+    assert run.stats["posts_new"] == 1
+    job = db.scalar(select(JobPost).where(JobPost.source_kind == "post"))
+    assert job is not None
+    assert job.source == "linkedin"
+    assert job.author_name == "Jane Doe"
+    assert job.author_type == "person"
+    assert job.outreach_method == "link"
+    assert job.status == "new"
 
 
 def test_stale_linkedin_jobs_leave_the_list(db):

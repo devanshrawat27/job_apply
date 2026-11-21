@@ -23,7 +23,16 @@ from app.database import SessionLocal
 from app.models import JobPost, User
 from app.agents import analyst, inbox, watcher
 from app.config import settings
-from app.services import accounts, browser_chatgpt, executor, limits, pipeline, x_dm_api
+from app.services import (
+    accounts,
+    browser_chatgpt,
+    executor,
+    limits,
+    linkedin_accounts,
+    linkedin_posts,
+    pipeline,
+    x_dm_api,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +73,11 @@ LINK_CHECK_MINUTES = 10
 # the safe pace: LinkedIn answers 429 after a couple of quick guest requests.
 LINKEDIN_SCAN_MINUTES = 60
 
+# LinkedIn posts need the member's own session. Search is slower and heavier
+# than the jobs board, so it gets its own timer.
+LINKEDIN_POSTS_MINUTES = 90
+LINKEDIN_SESSION_MINUTES = 30
+
 # While idle, like/follow a few hiring posts this often so X fills the feed
 # with hiring content instead of unrelated posts.
 FEED_TRAIN_MINUTES = 60
@@ -95,6 +109,9 @@ class AgentLoop(threading.Thread):
         self._last_link_check: dict[int | None, datetime] = {}
         # Last time LinkedIn's jobs board was searched.
         self._last_linkedin: dict[int | None, datetime] = {}
+        # Last time LinkedIn posts were searched, and last session probe.
+        self._last_linkedin_posts: dict[int | None, datetime] = {}
+        self._last_linkedin_session: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -375,6 +392,51 @@ class AgentLoop(threading.Thread):
             except Exception:  # noqa: BLE001 - never break the loop
                 logger.warning("LinkedIn scan failed for user %s", user_id, exc_info=True)
                 db.rollback()
+
+        # 2e. LinkedIn posts. Only people's hiring posts, only with a connected
+        # session. The jobs board above needs no login; this does.
+        if settings_row.linkedin_posts_enabled:
+            account_li = linkedin_accounts.active_account(db, user_id)
+            creds_li = linkedin_accounts.credentials(account_li) if account_li else None
+            if creds_li:
+                last_probe = self._last_linkedin_session.get(user_id)
+                probe_due = last_probe is None or now - last_probe >= timedelta(
+                    minutes=LINKEDIN_SESSION_MINUTES
+                )
+                if probe_due:
+                    self._last_linkedin_session[user_id] = now
+                    try:
+                        alive, _reason = linkedin_posts.check_session(creds_li)
+                        status = "connected" if alive else "expired"
+                        if account_li.status != status:
+                            account_li.status = status
+                            db.commit()
+                            logger.info("user %s LinkedIn session is %s", user_id, status)
+                    except Exception:  # noqa: BLE001 - never break the loop
+                        logger.warning(
+                            "LinkedIn session probe failed for user %s", user_id, exc_info=True
+                        )
+                        db.rollback()
+
+                last_posts = self._last_linkedin_posts.get(user_id)
+                posts_due = last_posts is None or now - last_posts >= timedelta(
+                    minutes=LINKEDIN_POSTS_MINUTES
+                )
+                if posts_due and account_li.status != "expired":
+                    self._last_linkedin_posts[user_id] = now
+                    try:
+                        post_run = pipeline.scan_linkedin_posts(db, user_id=user_id)
+                        logger.info(
+                            "user %s LinkedIn posts: %s %s",
+                            user_id,
+                            post_run.status,
+                            post_run.stats,
+                        )
+                    except Exception:  # noqa: BLE001 - never break the loop
+                        logger.warning(
+                            "LinkedIn post scan failed for user %s", user_id, exc_info=True
+                        )
+                        db.rollback()
 
         # 3. Scanning runs on its own schedule and is never starved by the queue.
         # Search itself needs X, so it stops while the session is dead; emails

@@ -86,9 +86,13 @@ export function JobCard({
 
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
   const isLinkedIn = job.source === 'linkedin'
+  const isPost = job.source_kind === 'post'
   const method = METHOD[job.outreach_method] ?? METHOD.dm
-  const methodLabel =
-    isLinkedIn && job.outreach_method === 'link' ? 'apply on LinkedIn' : method.label
+  const methodLabel = isLinkedIn
+    ? isPost
+      ? 'open the post'
+      : 'apply on LinkedIn'
+    : method.label
   const MethodIcon = method.icon
   const canAct = !['sent', 'sending'].includes(job.status)
   const needsYou = job.status === 'pending_approval'
@@ -183,7 +187,7 @@ export function JobCard({
               </span>
               {isLinkedIn ? (
                 <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-400">
-                  in LinkedIn
+                  {isPost ? 'in post' : 'in job'}
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">@{job.author_handle}</span>

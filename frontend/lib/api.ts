@@ -9,6 +9,7 @@ import type {
   Insight,
   Job,
   KeywordsSnapshot,
+  LinkedInAccount,
   LLMKey,
   OutreachItem,
   PeopleFinderResult,
@@ -176,6 +177,18 @@ export const api = {
     remember_password?: boolean
   }) => request<Account>('/accounts/connect', { method: 'POST', body: JSON.stringify(payload) }),
   disconnect: (id: number) => request<{ deleted: boolean }>(`/accounts/${id}`, { method: 'DELETE' }),
+  linkedinAccount: () => request<LinkedInAccount | null>('/linkedin'),
+  connectLinkedIn: (payload: {
+    email: string
+    password: string
+    verification_code?: string
+  }) =>
+    mutate<LinkedInAccount>('/linkedin/connect', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+  disconnectLinkedIn: (id: number) =>
+    mutate<{ deleted: boolean }>(`/linkedin/${id}`, { method: 'DELETE' }),
   setDmPasscode: (id: number, passcode: string | null) =>
     request<Account>(`/accounts/${id}/dm-passcode`, {
       method: 'PUT',

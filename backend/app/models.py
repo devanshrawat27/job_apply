@@ -115,6 +115,28 @@ class XAccount(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LinkedInAccount(Base):
+    """A connected LinkedIn session, used only to read hiring posts.
+
+    The session cookies are encrypted at rest and never returned by the API.
+    The password is used once for the sign-in and is not stored.
+    """
+
+    __tablename__ = "linkedin_account"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    email: Mapped[str] = mapped_column(String(200), default="")
+    display_name: Mapped[str] = mapped_column(String(200), default="")
+    vanity_name: Mapped[str] = mapped_column(String(120), default="")
+    session_ciphertext: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="connected")
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Resume(Base):
     """One uploaded resume. The agent picks the most relevant one per post."""
 
@@ -174,6 +196,13 @@ class AgentSettings(Base):
     closed_inbox_handles: Mapped[list] = mapped_column(JSON, default=list)
     # LinkedIn job discovery needs no login, so it is on by default.
     linkedin_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Search LinkedIn posts too (needs a connected LinkedIn account).
+    linkedin_posts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Last terms used for LinkedIn post search, so the rotation does not repeat.
+    linkedin_post_terms: Mapped[list] = mapped_column(JSON, default=list)
+    linkedin_posts_pause_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     # Set when LinkedIn answers 429/999. Survives restarts so the agent does not
     # hammer the same IP again after a reboot.
     linkedin_pause_until: Mapped[datetime | None] = mapped_column(
@@ -195,6 +224,8 @@ class JobPost(Base):
     post_id: Mapped[str] = mapped_column(String(40), index=True)
     # x | linkedin - where this job was found.
     source: Mapped[str] = mapped_column(String(20), default="x", index=True)
+    # job | post - a structured job listing or a person's hiring post.
+    source_kind: Mapped[str] = mapped_column(String(20), default="job")
     # The job id on that platform (LinkedIn keeps its own numeric id).
     source_job_id: Mapped[str] = mapped_column(String(64), default="")
     post_url: Mapped[str] = mapped_column(String(400), default="")

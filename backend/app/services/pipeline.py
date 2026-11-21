@@ -23,6 +23,7 @@ from app.agents import (
     email_writer,
     linkedin_jobs,
     linkedin_keywords,
+    linkedin_post_filter,
     query_lab,
     spam as spam_guard,
 )
@@ -46,7 +47,9 @@ from app.services import (
     email_accounts,
     executor,
     limits,
+    linkedin_accounts,
     linkedin_guest,
+    linkedin_posts,
     mailer,
     resume_pick,
     x_dm_api,
@@ -672,6 +675,237 @@ def expire_stale_linkedin(
     if expired:
         db.commit()
     return expired
+
+
+def _linkedin_post_terms(db: Session, profile: Profile, settings_row: AgentSettings, limit: int = 2) -> list[str]:
+    roles = list(discovery.selected_roles(profile)[:4]) + list(discovery.infer_adjacent_roles(profile, limit=2))
+    terms: list[str] = []
+    for role in roles:
+        terms.append(f"hiring {role}")
+    for role in roles[:2]:
+        terms.append(f"looking for {role}")
+    terms.extend(["we are hiring", "multiple openings"])
+
+    recent = [str(term) for term in (settings_row.linkedin_post_terms or [])]
+    known = {term.lower() for term in recent}
+    unseen = [term for term in terms if term.lower() not in known]
+    chosen = (unseen or terms)[:limit]
+    settings_row.linkedin_post_terms = (recent + chosen)[-12:]
+    db.commit()
+    return chosen
+
+
+def scan_linkedin_posts(
+    db: Session,
+    *,
+    manual: bool = False,
+    run: Run | None = None,
+    user_id: int | None = None,
+) -> Run:
+    """Find individual hiring posts on LinkedIn.
+
+    Needs a connected LinkedIn session. Only posts by people (not company
+    pages), with a real hiring signal and a matching role, become job cards.
+    The text search is keyword based, like X, but it never runs without a
+    session because LinkedIn has no public post search.
+    """
+    if run is None:
+        run = Run(kind="scan", status="running", user_id=user_id)
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+    stats: dict = {
+        "source": "linkedin_posts",
+        "queries": 0,
+        "keywords": [],
+        "posts_seen": 0,
+        "posts_new": 0,
+        "duplicates": 0,
+        "relevant": 0,
+        "rejected": 0,
+        "rejected_reasons": {},
+        "errors": [],
+    }
+
+    try:
+        profile = get_profile(db, user_id)
+        if profile is None:
+            raise PipelineError("Set up your profile first (upload a resume or fill the form).")
+        settings_row = get_settings_row(db, user_id)
+        if not settings_row.linkedin_posts_enabled:
+            run.status = "skipped"
+            run.stats = {**stats, "errors": ["LinkedIn post search is turned off"]}
+            run.finished_at = _now()
+            db.commit()
+            return run
+        if not manual and not settings_row.enabled:
+            run.status = "skipped"
+            run.stats = {**stats, "errors": ["agent is paused"]}
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        account = linkedin_accounts.active_account(db, user_id)
+        creds = linkedin_accounts.credentials(account) if account else None
+        if not creds:
+            run.status = "skipped"
+            run.stats = {
+                **stats,
+                "errors": ["connect your LinkedIn account to search hiring posts"],
+            }
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        pause_until = _as_utc(settings_row.linkedin_posts_pause_until)
+        if pause_until is not None and _now() < pause_until:
+            run.status = "skipped"
+            run.stats = {
+                **stats,
+                "errors": [
+                    "LinkedIn posts are paused after a rate limit until "
+                    + pause_until.strftime("%H:%M UTC")
+                ],
+            }
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        alive, reason = linkedin_posts.check_session(creds)
+        if not alive:
+            account.status = "expired"
+            db.commit()
+            run.status = "skipped"
+            run.stats = {**stats, "errors": [f"LinkedIn session expired: {reason}"]}
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        terms = _linkedin_post_terms(db, profile, settings_row)
+        stats["queries"] = len(terms)
+        stats["keywords"] = terms
+
+        existing_stmt = select(JobPost.post_id)
+        if user_id is not None:
+            existing_stmt = existing_stmt.where(JobPost.user_id == user_id)
+        existing = set(db.scalars(existing_stmt).all())
+
+        created = 0
+        for term in terms:
+            try:
+                posts = linkedin_posts.search_posts(creds, term, limit=10, date_posted="past-24h")
+            except linkedin_posts.PostsAuthRequired:
+                account.status = "expired"
+                db.commit()
+                stats["errors"].append("LinkedIn rejected the session - reconnect it")
+                break
+            except linkedin_posts.PostsBlocked as exc:
+                settings_row.linkedin_posts_pause_until = (
+                    linkedin_posts.cooldown_until() or _now() + timedelta(minutes=90)
+                ).replace(tzinfo=None)
+                db.commit()
+                stats["errors"].append(f"LinkedIn posts paused: {exc.reason}")
+                break
+            except linkedin_posts.PostsUnavailable as exc:
+                stats["errors"].append(f"post search failed: {exc}")
+                continue
+
+            stats["posts_seen"] += len(posts)
+            for post in posts:
+                content = str(post.get("content") or "").strip()
+                if not content:
+                    continue
+                post_id = f"li-post:{post.get('post_id') or ''}"[:40]
+                if not post_id or post_id in existing:
+                    stats["duplicates"] += 1
+                    continue
+
+                posted_at = post.get("posted_at")
+                if posted_at is not None:
+                    posted_at = _as_utc(posted_at)
+                    if posted_at is not None and _now() - posted_at > timedelta(
+                        minutes=LINKEDIN_MAX_AGE_MINUTES
+                    ):
+                        stats["rejected"] += 1
+                        key = f"older than {LINKEDIN_MAX_AGE_MINUTES // 60} hours"
+                        stats["rejected_reasons"][key] = (
+                            stats["rejected_reasons"].get(key, 0) + 1
+                        )
+                        continue
+
+                verdict = linkedin_post_filter.assess(profile, post)
+                if not verdict["ok"]:
+                    stats["rejected"] += 1
+                    key = str(verdict["reason"])[:80]
+                    stats["rejected_reasons"][key] = stats["rejected_reasons"].get(key, 0) + 1
+                    continue
+                if int(verdict["relevance"]) < LINKEDIN_MIN_RELEVANCE:
+                    stats["rejected"] += 1
+                    key = f"weak match (score {verdict['relevance']})"
+                    stats["rejected_reasons"][key] = stats["rejected_reasons"].get(key, 0) + 1
+                    continue
+
+                profile_url = str(post.get("author_profile_url") or "")
+                handle = profile_url.rstrip("/").split("/")[-1][:80] if "/in/" in profile_url else ""
+                job = JobPost(
+                    user_id=user_id,
+                    post_id=post_id,
+                    source="linkedin",
+                    source_kind="post",
+                    post_url=str(post.get("post_url") or "")[:400],
+                    author_handle=handle,
+                    author_name=str(post.get("author_name") or "")[:200],
+                    content=content[:12000],
+                    content_hash=discovery.content_fingerprint(content[:800]),
+                    posted_at=posted_at,
+                    query_text=term,
+                    status="new",
+                    relevance=int(verdict["relevance"]),
+                    company=str(verdict["company"] or "")[:200],
+                    role=str(verdict["role"] or "")[:200],
+                    job_location=str(verdict["location"] or "")[:200],
+                    apply_method="link",
+                    outreach_method="link",
+                    apply_url=str(post.get("post_url") or "")[:500],
+                    required_experience_months=discovery.required_experience_months(content),
+                    author_type="person",
+                    reason=(
+                        "individual hiring post"
+                        + (" - high-volume hiring" if verdict.get("high_volume") else "")
+                    ),
+                    spam_score=0,
+                    spam_reasons=[],
+                    decision_reason=(
+                        "LinkedIn hiring post - open it on LinkedIn; no automatic DM"
+                    ),
+                    confidence=0.0,
+                )
+                db.add(job)
+                existing.add(post_id)
+                created += 1
+                stats["relevant"] += 1
+                _log(job, "found a LinkedIn hiring post - added to Apply links")
+
+        db.commit()
+        stats["posts_new"] = created
+        run.status = "completed"
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+        db.rollback()
+        logger.exception("LinkedIn post scan failed")
+        run.status = "failed"
+        run.error = str(exc)
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
 
 
 def _company_handle(company_url: str, company: str) -> str:

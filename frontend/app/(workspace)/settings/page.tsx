@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 
 import { ConnectXForm } from '@/components/accounts/connect-x'
 import { ConnectEmail } from '@/components/accounts/connect-email'
+import { LinkedInCard } from '@/components/accounts/linkedin-card'
 import { PageHeader } from '@/components/page-header'
 import { ChipInput, Field } from '@/components/profile/fields'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -509,6 +510,13 @@ export default function SettingsPage() {
               after a rate limit. It resumes by itself.
             </p>
           ) : null}
+
+          <Toggle
+            checked={form.linkedin_posts_enabled !== false}
+            onChange={(linkedin_posts_enabled) => patch({ linkedin_posts_enabled })}
+            label="Read LinkedIn hiring posts too"
+            hint="Needs a connected LinkedIn account. Only individual recruiters/founders; community posts are filtered out."
+          />
 
           <details className="rounded-xl border border-border px-3 py-2">
             <summary className="cursor-pointer text-xs text-muted-foreground">
@@ -1058,6 +1066,8 @@ export default function SettingsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <LinkedInCard />
 
       <div className="flex justify-end">
         <Button onClick={() => void save()} disabled={saving}>

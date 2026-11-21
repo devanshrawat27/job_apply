@@ -93,6 +93,26 @@ class DmPasscodeIn(BaseModel):
     passcode: str | None = None
 
 
+class LinkedInConnectIn(BaseModel):
+    email: str
+    password: str
+    verification_code: str | None = None
+
+
+class LinkedInAccountOut(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    vanity_name: str
+    status: str
+    has_session: bool = True
+    last_checked_at: datetime | None = None
+
+    @field_serializer("last_checked_at")
+    def _serialize_utc(self, value: datetime | None, _info):
+        return iso_utc(value)
+
+
 class AccountOut(BaseModel):
     id: int
     username: str
@@ -130,6 +150,7 @@ class SettingsIn(BaseModel):
     chatgpt_browser_enabled: bool | None = None
     closed_inbox_handles: list[str] | None = None
     linkedin_enabled: bool | None = None
+    linkedin_posts_enabled: bool | None = None
 
 
 class SettingsOut(BaseModel):
@@ -152,6 +173,7 @@ class SettingsOut(BaseModel):
     chatgpt_browser_enabled: bool
     closed_inbox_handles: list[str] = []
     linkedin_enabled: bool = True
+    linkedin_posts_enabled: bool = True
     linkedin_pause_until: datetime | None = None
     model_config = {"from_attributes": True}
 
@@ -163,6 +185,7 @@ class JobOut(BaseModel):
     post_id: str
     source: str = "x"
     source_job_id: str = ""
+    source_kind: str = "job"
     post_url: str
     author_handle: str
     author_name: str

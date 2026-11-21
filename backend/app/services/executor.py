@@ -36,6 +36,7 @@ SCRIPTS: dict[str, str] = {
     "dm": "scripts/sendDm.js",
     "follow": "scripts/followUser.js",
     "login": "scripts/loginWithPassword.js",
+    "linkedin_login": "scripts/linkedinLogin.js",
     "chatgpt_ask": "scripts/chatgptAsk.js",
     "chatgpt_login": "scripts/chatgptLogin.js",
     "chatgpt_whoami": "scripts/chatgptWhoami.js",
@@ -194,7 +195,7 @@ def run_script(
     env["JOBPILOT_PROFILE_SUFFIX"] = suffix
     # Everything runs headless in the background. The only exceptions are the
     # interactive sign-ins, which the human explicitly starts from the UI.
-    if settings.automation_headless and name not in ("login", "chatgpt_login"):
+    if settings.automation_headless and name not in ("login", "chatgpt_login", "linkedin_login"):
         env["STEALTH_HEADLESS"] = "1"
 
     for key, value in (args or {}).items():

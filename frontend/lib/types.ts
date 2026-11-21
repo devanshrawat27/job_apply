@@ -64,6 +64,16 @@ export interface Account {
   last_checked_at: string | null
 }
 
+export interface LinkedInAccount {
+  id: number
+  email: string
+  display_name: string
+  vanity_name: string
+  status: string
+  has_session: boolean
+  last_checked_at: string | null
+}
+
 export interface AgentSettings {
   enabled: boolean
   scan_interval_minutes: number
@@ -84,6 +94,7 @@ export interface AgentSettings {
   chatgpt_browser_enabled: boolean
   closed_inbox_handles?: string[]
   linkedin_enabled: boolean
+  linkedin_posts_enabled?: boolean
   linkedin_pause_until?: string | null
 }
 
@@ -92,6 +103,7 @@ export interface Job {
   post_id: string
   source: 'x' | 'linkedin'
   source_job_id: string
+  source_kind: 'job' | 'post'
   post_url: string
   author_handle: string
   author_name: string
