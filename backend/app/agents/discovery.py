@@ -331,6 +331,23 @@ def required_experience_months(text: str) -> int:
     return min(lows) * 12
 
 
+def experience_limit(profile: Profile) -> int:
+    """How many months of required experience still fits this profile.
+
+    A fresher is allowed up to a year (entry-level posts often say "1 year"),
+    and someone with real experience gets a small six-month grace. This is what
+    keeps a junior profile away from 3-5 year roles without a hardcoded rule.
+    """
+    months = int(profile.experience_months or 0)
+    level = (profile.seniority or "").lower()
+    junior = months <= 12 or any(
+        word in level for word in ("intern", "fresher", "junior", "entry", "graduate", "trainee")
+    )
+    if junior:
+        return max(12, months + 3)
+    return months + 6
+
+
 def matches_avoid(profile: Profile, text: str) -> str | None:
     lowered = (text or "").lower()
     for term in profile.avoid or []:

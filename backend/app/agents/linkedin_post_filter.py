@@ -165,7 +165,7 @@ def assess(profile: Profile, post: dict) -> dict:
         return result
 
     required = discovery.required_experience_months(text)
-    if required > (profile.experience_months or 0) + 3:
+    if required > discovery.experience_limit(profile):
         result["reason"] = f"needs about {required // 12} years of experience, you have less"
         return result
     eligibility = discovery.eligibility_gap(profile, text)

@@ -1262,8 +1262,7 @@ def _experience_gap(profile: Profile, job: JobPost) -> str:
     required = job.required_experience_months or 0
     if required <= 0:
         return ""
-    # Small grace so a 6-month candidate still sees "1 year" roles.
-    if required <= profile.experience_months + 3:
+    if required <= discovery.experience_limit(profile):
         return ""
     return (
         f"needs {format_experience(required)} experience, "
@@ -2391,7 +2390,7 @@ def check_apply_links(
     checked = 0
     dead = 0
     profile = get_profile(db, user_id)
-    max_experience = profile.experience_months if profile is not None else None
+    max_experience = discovery.experience_limit(profile) if profile is not None else None
     for job in db.scalars(stmt).all():
         ok, reason = link_check.check(
             job.apply_url, max_experience_months=max_experience

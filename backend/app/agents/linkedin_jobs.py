@@ -163,7 +163,8 @@ def _experience_reason(profile: Profile, text: str) -> str:
     required = discovery.required_experience_months(text)
     if required <= 0:
         return ""
-    if required <= (profile.experience_months or 0) + 3:
+    limit = discovery.experience_limit(profile)
+    if required <= limit:
         return ""
     years = required / 12
     return f"needs about {years:.0f} year(s) of experience, you have less"

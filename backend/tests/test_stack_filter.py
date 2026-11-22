@@ -42,6 +42,16 @@ def test_mainframe_and_salesforce_roles_are_rejected():
     assert discovery.stack_mismatch(profile(), "Salesforce developer with Apex experience")
 
 
+def test_fresher_limit_is_one_year():
+    fresher = profile(experience_months=4, seniority="fresher")
+    assert discovery.experience_limit(fresher) == 12
+    assert discovery.required_experience_months("1 year of experience") <= discovery.experience_limit(fresher)
+    assert discovery.required_experience_months("2+ years of experience") > discovery.experience_limit(fresher)
+
+    mid = profile(experience_months=24, seniority="mid")
+    assert discovery.experience_limit(mid) == 30
+
+
 def test_the_model_saying_it_does_not_match_is_an_auto_reject():
     reason = composer.auto_reject_reason(
         ["Role requires specific SAP ABAP stack which does not match candidate's background."]

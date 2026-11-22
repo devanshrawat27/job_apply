@@ -197,7 +197,7 @@ def check(
 
     if max_experience_months is not None:
         required = page_experience_months(text)
-        if required and required > max_experience_months + 3:
+        if required and required > max_experience_months:
             return False, f"page asks {required // 12}+ years experience"
 
     return True, ""
