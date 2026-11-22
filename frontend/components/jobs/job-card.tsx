@@ -270,7 +270,9 @@ export function JobCard({
         ) : null}
 
         {/* apply target */}
-        {job.apply_url && (job.outreach_method === 'link' || applyMode) ? (
+        {job.source !== 'linkedin' &&
+        job.apply_url &&
+        (job.outreach_method === 'link' || applyMode) ? (
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border bg-muted/20 px-3 py-2">
             <div className="min-w-0">
               <p className="text-[11px] font-medium text-muted-foreground">

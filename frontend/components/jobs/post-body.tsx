@@ -32,6 +32,9 @@ function splitLinkParts(value: string): { text: string; href?: string }[] {
 
 function parsePost(text: string): Block[] {
   const lines = (text || '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/^#{1,6}\s+/gm, '')
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
@@ -132,6 +135,7 @@ export function PostBody({
     <div
       className={cn(
         'mt-3 rounded-lg border border-border/70 bg-muted/20 px-3.5 py-3',
+        !expanded && 'max-h-48 overflow-hidden',
         className,
       )}
     >
