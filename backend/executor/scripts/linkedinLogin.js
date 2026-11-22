@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Sign in to LinkedIn and return the session cookies.
  *
  * The password arrives in SCRIPT_ARG_PASSWORD, is typed into LinkedIn's own
@@ -37,8 +37,8 @@ async function findVisible(page, selectors, timeoutMs) {
   return null
 }
 
-async function submit(page) {
-  const buttons = page.locator('button[type="submit"], button')
+async function submit(page, field = null) {
+  const buttons = page.locator('button[type="submit"]')
   const count = await buttons.count().catch(() => 0)
   for (let index = 0; index < count; index += 1) {
     const item = buttons.nth(index)
@@ -50,7 +50,8 @@ async function submit(page) {
       return
     }
   }
-  await page.keyboard.press('Enter')
+  if (field) await field.press('Enter')
+  else await page.keyboard.press('Enter')
 }
 
 async function readSession(context) {
@@ -66,6 +67,29 @@ async function signedInName(page) {
   return { name: title, vanity }
 }
 
+async function reportExistingSession(context, page) {
+  const cookies = await readSession(context)
+  if (!cookies.li_at || !cookies.JSESSIONID) return false
+  await page
+    .goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 45000 })
+    .catch(() => {})
+  await randomWait(1500, 2500)
+  const { name, vanity } = await signedInName(page)
+  const finalCookies = await readSession(context)
+  reportOk({
+    name: name || '',
+    vanity: vanity || '',
+    credentials: {
+      li_at: finalCookies.li_at || '',
+      JSESSIONID: finalCookies.JSESSIONID || '',
+      bcookie: finalCookies.bcookie || '',
+      lidc: finalCookies.lidc || '',
+      liap: finalCookies.liap || '',
+    },
+  })
+  return true
+}
+
 async function login() {
   // Sign in in a dedicated browser profile. Attaching to the warm X browser
   // would move the X page to LinkedIn and close the X host when this ends.
@@ -74,18 +98,39 @@ async function login() {
   const { context, page } = await launchBrowser({ withSession: false })
 
   try {
+    // A previous attempt may already have signed in. Reuse that session instead
+    // of looking for a login form that will never appear.
+    if (await reportExistingSession(context, page)) return
+
     await page
       .goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 60000 })
       .catch(() => {})
     await randomWait(1500, 2500)
 
+    if (/\/feed\/?|\/home\/?|\/mynetwork\/?/.test(page.url())) {
+      if (await reportExistingSession(context, page)) return
+    }
+
     const emailInput = await findVisible(
       page,
-      ['input#username', 'input[autocomplete*="username"]', 'input[name="session_key"]'],
-      25000,
+      [
+        'input#username',
+        'input[autocomplete*="username"]',
+        'input[type="email"]',
+        'input[name="session_key"]',
+        'input[name="email"]',
+        'input[name="username"]',
+      ],
+      35000,
     )
     if (!emailInput) {
-      return reportFail('SELECTOR_MISS', 'Could not find the LinkedIn login form.')
+      const body = (await page.locator('body').innerText().catch(() => ''))
+        .replace(/\s+/g, ' ')
+        .slice(0, 180)
+      return reportFail(
+        'SELECTOR_MISS',
+        `Could not find the LinkedIn login form (page: ${page.url()}).${body ? ` LinkedIn says: "${body}"` : ''}`,
+      )
     }
     await humanClick(page, emailInput)
     await humanType(page, EMAIL)
@@ -93,8 +138,13 @@ async function login() {
 
     const passwordInput = await findVisible(
       page,
-      ['input#password', 'input[autocomplete="current-password"]', 'input[name="session_password"]'],
-      20000,
+      [
+        'input#password',
+        'input[autocomplete="current-password"]',
+        'input[name="session_password"]',
+        'input[type="password"]',
+      ],
+      25000,
     )
     if (!passwordInput) {
       return reportFail('SELECTOR_MISS', 'The LinkedIn password field never appeared.')
@@ -102,7 +152,7 @@ async function login() {
     await humanClick(page, passwordInput)
     await humanType(page, PASSWORD)
     await randomWait(400, 900)
-    await submit(page)
+    await submit(page, passwordInput)
 
     // LinkedIn sometimes asks for an email/SMS code on /checkpoint/challenge.
     const deadline = Date.now() + 120000
@@ -124,7 +174,7 @@ async function login() {
         if (codeInput && CODE) {
           await humanClick(page, codeInput)
           await humanType(page, CODE)
-          await submit(page)
+          await submit(page, codeInput)
           await randomWait(2000, 3000)
           continue
         }
@@ -201,3 +251,4 @@ if (!EMAIL || !PASSWORD) {
 } else {
   login().finally(() => clearTimeout(watchdog))
 }
+
