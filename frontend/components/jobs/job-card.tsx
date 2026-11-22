@@ -25,6 +25,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/input'
 import { EmailPreview } from '@/components/jobs/email-preview'
+import { LinkedInPostSummary } from '@/components/jobs/linkedin-post-summary'
 import { PeopleFinder } from '@/components/jobs/people-finder'
 import { PostBody, isLongPost } from '@/components/jobs/post-body'
 import { api } from '@/lib/api'
@@ -257,17 +258,23 @@ export function JobCard({
         </div>
 
         {/* post text */}
-        <PostBody text={cleaned} expanded={expanded} />
-        {longPost ? (
-          <button
-            type="button"
-            onClick={() => setExpanded((v) => !v)}
-            className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            {expanded ? <ChevronUpIcon className="size-3" /> : <ChevronDownIcon className="size-3" />}
-            {expanded ? 'Show less' : 'Show full post'}
-          </button>
-        ) : null}
+        {isPost ? (
+          <LinkedInPostSummary job={job} text={cleaned} />
+        ) : (
+          <>
+            <PostBody text={cleaned} expanded={expanded} />
+            {longPost ? (
+              <button
+                type="button"
+                onClick={() => setExpanded((v) => !v)}
+                className="mt-1.5 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                {expanded ? <ChevronUpIcon className="size-3" /> : <ChevronDownIcon className="size-3" />}
+                {expanded ? 'Show less' : 'Show full post'}
+              </button>
+            ) : null}
+          </>
+        )}
 
         {/* apply target */}
         {job.source !== 'linkedin' &&
