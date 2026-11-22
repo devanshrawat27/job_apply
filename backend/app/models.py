@@ -451,6 +451,32 @@ class LinkedInQuery(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class LinkedInPostQuery(Base):
+    """Keyword scoreboard for LinkedIn hiring-post searches."""
+
+    __tablename__ = "linkedin_post_query"
+    __table_args__ = (
+        UniqueConstraint("user_id", "keyword", name="uq_linkedin_post_query_user_keyword"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    keyword: Mapped[str] = mapped_column(String(160), index=True)
+    status: Mapped[str] = mapped_column(String(20), default="candidate")
+    # skill | role | phrase | analyst
+    source: Mapped[str] = mapped_column(String(20), default="role")
+
+    uses: Mapped[int] = mapped_column(Integer, default=0)
+    posts_seen: Mapped[int] = mapped_column(Integer, default=0)
+    posts_relevant: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class EmailAccount(Base):
     """Per-user SMTP credentials for sending application emails.
 

@@ -217,6 +217,16 @@ export interface KeywordStat {
 export interface KeywordsSnapshot {
   active: KeywordStat[]
   testing: KeywordStat[]
+  linkedin_jobs?: {
+    active: KeywordStat[]
+    testing: KeywordStat[]
+    retired?: number
+  }
+  linkedin_posts?: {
+    active: KeywordStat[]
+    testing: KeywordStat[]
+    retired?: number
+  }
 }
 
 export interface Health {

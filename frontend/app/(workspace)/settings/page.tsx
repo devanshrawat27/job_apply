@@ -28,7 +28,78 @@ import { Input } from '@/components/ui/input'
 import { Separator, Skeleton } from '@/components/ui/misc'
 import { api } from '@/lib/api'
 import { useWorkspace } from '@/lib/use-workspace'
-import type { AgentSettings, ChatThread, KeywordsSnapshot, LLMKey } from '@/lib/types'
+import type {
+  AgentSettings,
+  ChatThread,
+  KeywordStat,
+  KeywordsSnapshot,
+  LLMKey,
+} from '@/lib/types'
+
+function LinkedInKeywordTable({
+  title,
+  data,
+}: {
+  title: string
+  data?: { active: KeywordStat[]; testing: KeywordStat[]; retired?: number }
+}) {
+  const rows = [
+    ...(data?.active ?? []).map((item) => ({ ...item, status: 'active' })),
+    ...(data?.testing ?? []).map((item) => ({ ...item, status: 'testing' })),
+  ].slice(0, 12)
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-muted-foreground">{title}</p>
+        {data?.retired ? (
+          <span className="text-[11px] text-muted-foreground">{data.retired} retired</span>
+        ) : null}
+      </div>
+      {rows.length ? (
+        <div className="overflow-x-auto rounded-lg border border-border">
+          <table className="w-full min-w-[420px] text-left text-xs">
+            <thead className="bg-muted/40 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <tr>
+                <th className="px-3 py-1.5 font-medium">Keyword</th>
+                <th className="px-2 py-1.5 font-medium">Uses</th>
+                <th className="px-2 py-1.5 font-medium">Seen</th>
+                <th className="px-2 py-1.5 font-medium">Relevant</th>
+                <th className="px-2 py-1.5 text-right font-medium">Score</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((item) => (
+                <tr key={`${title}-${item.keyword}`} className="border-t border-border/70">
+                  <td className="max-w-[260px] truncate px-3 py-1.5" title={item.keyword}>
+                    {item.keyword}
+                    {item.status === 'testing' ? (
+                      <span className="ml-1.5 text-[10px] text-muted-foreground">testing</span>
+                    ) : null}
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums text-muted-foreground">{item.uses}</td>
+                  <td className="px-2 py-1.5 tabular-nums text-muted-foreground">
+                    {item.posts_seen}
+                  </td>
+                  <td className="px-2 py-1.5 tabular-nums">
+                    <span className={item.posts_relevant ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}>
+                      {item.posts_relevant}
+                    </span>
+                  </td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">
+                    {Math.round(item.score * 100)}%
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No keyword has run yet.</p>
+      )}
+    </div>
+  )
+}
 
 function Toggle({
   checked,
@@ -653,6 +724,25 @@ export default function SettingsPage() {
           <p className="text-[11px] text-muted-foreground">
             Click a keyword to pin it. Pinned keywords are always searched; weak unpinned
             ones are dropped automatically.
+          </p>
+        </CardContent>
+      </Card>
+
+      {/* --------------------------------------------- LinkedIn keywords */}
+      <Card>
+        <CardHeader>
+          <CardTitle>LinkedIn keywords</CardTitle>
+          <CardDescription>
+            How many posts each LinkedIn search brought back, and how many were a real
+            individual hiring post. ChatGPT reads this table too and suggests new terms.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-5">
+          <LinkedInKeywordTable title="Jobs board" data={keywords?.linkedin_jobs} />
+          <LinkedInKeywordTable title="Hiring posts" data={keywords?.linkedin_posts} />
+          <p className="text-[11px] text-muted-foreground">
+            A keyword that keeps returning job-board pages, company pages or senior roles is
+            retired automatically. New terms from ChatGPT start as “testing”.
           </p>
         </CardContent>
       </Card>

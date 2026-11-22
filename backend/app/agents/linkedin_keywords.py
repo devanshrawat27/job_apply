@@ -126,16 +126,17 @@ def snapshot(db: Session, user_id: int | None = None) -> dict:
     if user_id is not None:
         stmt = stmt.where(LinkedInQuery.user_id == user_id)
     rows = list(db.scalars(stmt.order_by(LinkedInQuery.score.desc())).all())
+    def item(row: LinkedInQuery) -> dict:
+        return {
+            "keyword": row.keyword,
+            "score": row.score,
+            "uses": row.uses,
+            "posts_seen": row.jobs_seen,
+            "posts_relevant": row.jobs_relevant,
+        }
+
     return {
-        "active": [
-            {"keyword": row.keyword, "score": row.score, "jobs_seen": row.jobs_seen}
-            for row in rows
-            if row.status == "active"
-        ],
-        "testing": [
-            {"keyword": row.keyword, "score": row.score, "jobs_seen": row.jobs_seen}
-            for row in rows
-            if row.status == "candidate"
-        ][:12],
+        "active": [item(row) for row in rows if row.status == "active"],
+        "testing": [item(row) for row in rows if row.status == "candidate"][:12],
         "retired": len([row for row in rows if row.status == "retired"]),
     }

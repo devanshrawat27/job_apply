@@ -24,6 +24,7 @@ from app.agents import (
     linkedin_jobs,
     linkedin_keywords,
     linkedin_post_filter,
+    linkedin_post_keywords,
     query_lab,
     spam as spam_guard,
 )
@@ -789,9 +790,11 @@ def scan_linkedin_posts(
             db.commit()
             return run
 
-        terms = _linkedin_post_terms(db, profile, settings_row)
+        rows = linkedin_post_keywords.pick(db, profile, user_id)
+        terms = [row.keyword for row in rows]
         stats["queries"] = len(terms)
         stats["keywords"] = terms
+        per_keyword = {term: {"seen": 0, "relevant": 0} for term in terms}
 
         existing_stmt = select(JobPost.post_id)
         if user_id is not None:
@@ -799,7 +802,8 @@ def scan_linkedin_posts(
         existing = set(db.scalars(existing_stmt).all())
 
         created = 0
-        for term in terms:
+        for row in rows:
+            term = row.keyword
             try:
                 posts = linkedin_posts.search_posts(creds, term, limit=10, date_posted="past-24h")
             except linkedin_posts.PostsAuthRequired:
@@ -819,6 +823,7 @@ def scan_linkedin_posts(
                 continue
 
             stats["posts_seen"] += len(posts)
+            per_keyword[term]["seen"] += len(posts)
             for post in posts:
                 content = str(post.get("content") or "").strip()
                 if not content:
@@ -892,8 +897,10 @@ def scan_linkedin_posts(
                 existing.add(post_id)
                 created += 1
                 stats["relevant"] += 1
+                per_keyword[term]["relevant"] += 1
                 _log(job, "found a LinkedIn hiring post - added to Apply links")
 
+        linkedin_post_keywords.record(db, rows, per_keyword)
         db.commit()
         stats["posts_new"] = created
         run.status = "completed"

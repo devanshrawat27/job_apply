@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.llm import LLMUnavailable, complete_json
-from app.models import Insight, JobPost, Profile, SearchQuery
+from app.models import Insight, JobPost, LinkedInPostQuery, LinkedInQuery, Profile, SearchQuery
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,9 @@ github: {github}
 KEYWORDS (keyword | status | uses | posts seen | relevant | replies | score)
 {keywords}
 
+LINKEDIN KEYWORDS
+{linkedin_keywords}
+
 REJECTED SAMPLE (reason)
 {rejected}
 
@@ -75,6 +78,9 @@ Return JSON:
   ],
   "new_keywords": [
     {{"keyword": "search phrase for X", "why": "why it fits a fresher"}}
+  ],
+  "new_linkedin_keywords": [
+    {{"keyword": "search phrase for LinkedIn hiring posts", "why": "why it fits the candidate"}}
   ],
   "message_tips": ["specific change for the replies/DMs"],
   "best_post_types": ["what kind of post this candidate should aim at"]
@@ -144,6 +150,31 @@ def _sent_lines(db: Session, user_id: int | None) -> list[str]:
     return lines
 
 
+def _linkedin_lines(db: Session, user_id: int | None) -> list[str]:
+    lines: list[str] = []
+    jobs_stmt = select(LinkedInQuery)
+    if user_id is None:
+        jobs_stmt = jobs_stmt.where(LinkedInQuery.user_id.is_(None))
+    else:
+        jobs_stmt = jobs_stmt.where(LinkedInQuery.user_id == user_id)
+    for row in db.scalars(jobs_stmt.order_by(LinkedInQuery.score.desc()).limit(20)).all():
+        lines.append(
+            f"jobs | {row.keyword} | {row.status} | {row.uses} | {row.jobs_seen} | "
+            f"{row.jobs_relevant} | {row.score:.2f}"
+        )
+    posts_stmt = select(LinkedInPostQuery)
+    if user_id is None:
+        posts_stmt = posts_stmt.where(LinkedInPostQuery.user_id.is_(None))
+    else:
+        posts_stmt = posts_stmt.where(LinkedInPostQuery.user_id == user_id)
+    for row in db.scalars(posts_stmt.order_by(LinkedInPostQuery.score.desc()).limit(20)).all():
+        lines.append(
+            f"posts | {row.keyword} | {row.status} | {row.uses} | {row.posts_seen} | "
+            f"{row.posts_relevant} | {row.score:.2f}"
+        )
+    return lines
+
+
 def review_keywords(
     db: Session,
     user_id: int | None,
@@ -162,6 +193,7 @@ def review_keywords(
     prompt = PROMPT.format(
         **_profile_snapshot(profile),
         keywords="\n".join(_keyword_lines(db, user_id)) or "(none yet)",
+        linkedin_keywords="\n".join(_linkedin_lines(db, user_id)) or "(none yet)",
         rejected="\n".join(_rejected_lines(db, user_id)) or "(none yet)",
         sent="\n".join(_sent_lines(db, user_id)) or "(none yet)",
     )
@@ -204,6 +236,14 @@ def review_keywords(
                 "why": str(item.get("why") or "")[:300],
             }
             for item in (data.get("new_keywords") or [])[:MAX_NEW_KEYWORDS]
+            if isinstance(item, dict) and str(item.get("keyword") or "").strip()
+        ],
+        "new_linkedin_keywords": [
+            {
+                "keyword": str(item.get("keyword") or "")[:160],
+                "why": str(item.get("why") or "")[:300],
+            }
+            for item in (data.get("new_linkedin_keywords") or [])[:MAX_NEW_KEYWORDS]
             if isinstance(item, dict) and str(item.get("keyword") or "").strip()
         ],
         "message_tips": [str(tip)[:300] for tip in (data.get("message_tips") or [])][:8],
@@ -264,6 +304,18 @@ def _adopt_keywords(db: Session, user_id: int | None, payload: dict) -> None:
         )
         known.add(keyword.lower())
 
+    from app.agents import linkedin_post_keywords
+
+    linkedin_post_keywords.add_suggestions(
+        db,
+        user_id,
+        [
+            str(item.get("keyword") or "")
+            for item in payload.get("new_linkedin_keywords", [])
+            if isinstance(item, dict)
+        ],
+    )
+
     # Act on the model's "retire" verdicts, but only when the real numbers
     # agree. A keyword that brought relevant posts is never retired on advice
     # alone, and pinned keywords are never retired.
@@ -287,6 +339,34 @@ def _adopt_keywords(db: Session, user_id: int | None, payload: dict) -> None:
             row.status = "retired"
             logger.info(
                 "retired keyword %r: %s", row.keyword, str(item.get("why") or "")[:120]
+            )
+
+    # LinkedIn post keywords: the model can retire a term, but only when its own
+    # numbers agree (no relevant posts after several uses).
+    from app.models import LinkedInPostQuery
+
+    for item in payload.get("keyword_verdicts", []):
+        if str(item.get("verdict") or "").lower() != "retire":
+            continue
+        name = str(item.get("keyword") or "").strip().lower()
+        if not name:
+            continue
+        stmt = select(LinkedInPostQuery).where(LinkedInPostQuery.keyword.ilike(name))
+        if user_id is None:
+            stmt = stmt.where(LinkedInPostQuery.user_id.is_(None))
+        else:
+            stmt = stmt.where(LinkedInPostQuery.user_id == user_id)
+        row = db.scalar(stmt.limit(1))
+        if row is None or row.status == "retired":
+            continue
+        zero_relevant = (row.posts_relevant or 0) == 0 and (row.uses or 0) >= 3
+        low_score = (row.score or 0) < 0.10 and (row.uses or 0) >= 6
+        if zero_relevant or low_score:
+            row.status = "retired"
+            logger.info(
+                "retired LinkedIn keyword %r: %s",
+                row.keyword,
+                str(item.get("why") or "")[:120],
             )
 
     db.commit()

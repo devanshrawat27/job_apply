@@ -8,9 +8,17 @@ from __future__ import annotations
 import pytest
 from sqlalchemy import delete, select
 
-from app.agents import linkedin_jobs
+from app.agents import linkedin_jobs, linkedin_post_keywords
 from app.database import SessionLocal
-from app.models import AgentSettings, JobPost, LinkedInAccount, LinkedInQuery, Profile, Run
+from app.models import (
+    AgentSettings,
+    JobPost,
+    LinkedInAccount,
+    LinkedInPostQuery,
+    LinkedInQuery,
+    Profile,
+    Run,
+)
 from app.security import encrypt_credentials
 from app.services import linkedin_guest, linkedin_posts, pipeline
 
@@ -75,7 +83,7 @@ def make_profile() -> Profile:
 def db():
     linkedin_guest.reset_cooldown()
     session = SessionLocal()
-    for model in (JobPost, Run, LinkedInQuery, LinkedInAccount):
+    for model in (JobPost, Run, LinkedInQuery, LinkedInPostQuery, LinkedInAccount):
         session.execute(delete(model))
     session.execute(delete(AgentSettings))
     session.execute(delete(Profile))
@@ -309,6 +317,19 @@ def test_linkedin_post_scan_creates_a_post_card(db, monkeypatch):
     assert job.author_type == "person"
     assert job.outreach_method == "link"
     assert job.status == "new"
+
+
+def test_linkedin_post_keywords_track_relevance(db):
+    db.add(make_profile())
+    db.commit()
+
+    rows = linkedin_post_keywords.pick(db, make_profile(), None)
+    assert len(rows) == 3
+    per_keyword = {row.keyword: {"seen": 10, "relevant": 1} for row in rows}
+    linkedin_post_keywords.record(db, rows, per_keyword)
+    snapshot = linkedin_post_keywords.snapshot(db, None)
+    assert snapshot["active"] or snapshot["testing"]
+    assert any(item["posts_seen"] == 10 for item in snapshot["active"] + snapshot["testing"])
 
 
 def test_stale_linkedin_jobs_leave_the_list(db):

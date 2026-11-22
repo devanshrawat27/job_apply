@@ -3,7 +3,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.agents import query_lab
+from app.agents import linkedin_keywords, linkedin_post_keywords, query_lab
 from app.database import get_db
 from app.deps import CurrentUser
 from app.models import SearchQuery
@@ -23,7 +23,12 @@ class PinIn(BaseModel):
 @router.get("")
 def list_keywords(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
     """Which search keywords are winning, and which are still being tested."""
-    return query_lab.snapshot(db, _uid(user))
+    uid = _uid(user)
+    return {
+        **query_lab.snapshot(db, uid),
+        "linkedin_jobs": linkedin_keywords.snapshot(db, uid),
+        "linkedin_posts": linkedin_post_keywords.snapshot(db, uid),
+    }
 
 
 @router.post("/pin")
