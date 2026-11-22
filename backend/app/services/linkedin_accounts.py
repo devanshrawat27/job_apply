@@ -73,6 +73,8 @@ def connect_with_password(
         account.user_id = user_id
 
     account.display_name = str(data.get("name") or account.display_name or "")[:200]
+    if not account.display_name or "feed" in account.display_name.lower() or account.display_name.startswith("("):
+        account.display_name = ""
     account.vanity_name = str(data.get("vanity") or account.vanity_name or "")[:120]
     account.session_ciphertext = encrypt_credentials(cookies)
     account.status = "connected"

@@ -677,14 +677,21 @@ def expire_stale_linkedin(
     return expired
 
 
-def _linkedin_post_terms(db: Session, profile: Profile, settings_row: AgentSettings, limit: int = 2) -> list[str]:
+def _linkedin_post_terms(db: Session, profile: Profile, settings_row: AgentSettings, limit: int = 3) -> list[str]:
     roles = list(discovery.selected_roles(profile)[:4]) + list(discovery.infer_adjacent_roles(profile, limit=2))
+    skills = [str(skill).strip() for skill in (profile.skills or []) if str(skill).strip()][:3]
     terms: list[str] = []
-    for role in roles:
-        terms.append(f"hiring {role}")
+    # Skill + role searches tend to surface individual hirers; broad titles are
+    # dominated by job-board pages.
+    for skill in skills:
+        terms.append(f"hiring {skill} developer")
+    for role in roles[:3]:
+        terms.append(f"I am hiring {role}")
+        terms.append(f"we are hiring {role}")
     for role in roles[:2]:
         terms.append(f"looking for {role}")
-    terms.extend(["we are hiring", "multiple openings"])
+        terms.append(f"hiring for my team {role}")
+    terms.extend(["I am hiring", "we are hiring", "multiple openings"])
 
     recent = [str(term) for term in (settings_row.linkedin_post_terms or [])]
     known = {term.lower() for term in recent}

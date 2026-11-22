@@ -55,17 +55,31 @@ def community_reason(text: str) -> str:
     return ""
 
 
+_AGENCY_NAME = re.compile(
+    r"(hire|career|jobs?|talent|recruit|staffing|consult|solution|technolog|service|verse)",
+    re.I,
+)
+
+
 def is_individual(post: dict) -> bool:
     url = str(post.get("author_profile_url") or "").lower()
-    if "/in/" in url:
-        return True
-    if "/company/" in url:
-        return False
     name = str(post.get("author_name") or "").strip()
     if not name:
         return False
-    # Company pages usually carry a legal suffix in the author name.
-    return not re.search(r"\b(inc|ltd|llc|limited|technologies|solutions|systems|consulting|services)\b", name, re.I)
+    # Job boards and agency pages post the same listing from many accounts.
+    agency = re.compile(
+        r"(hire|career|jobs?|talent|recruit|staffing|consult|solution|technolog|service|verse|community|share)",
+        re.I,
+    )
+    if agency.search(name.replace(" ", "")) or agency.search(url):
+        return False
+    if "/company/" in url:
+        return False
+    if "/in/" in url:
+        # Real profile slugs can end in a few digits; a long activity id means
+        # this "profile" was derived from a job-board post slug.
+        return not re.search(r"\d{12,}", url)
+    return True
 
 
 def _company_from_text(text: str) -> str:
@@ -112,10 +126,6 @@ def assess(profile: Profile, post: dict) -> dict:
     if _JOB_SEEKER.search(text):
         result["reason"] = "job seeker post, not a hiring post"
         return result
-    community = community_reason(text)
-    if community:
-        result["reason"] = f"community post ({community})"
-        return result
     if not _HIRING.search(text):
         result["reason"] = "no hiring signal"
         return result
@@ -128,6 +138,22 @@ def assess(profile: Profile, post: dict) -> dict:
     if not role and not points:
         result["reason"] = "role does not match your target roles"
         return result
+    if linkedin_jobs.is_junior(profile) and (
+        linkedin_jobs.SENIOR_TITLE_RE.search(text[:300])
+        or linkedin_jobs.LEVEL_NUMBER_RE.search(text[:300])
+    ):
+        result["reason"] = "senior or mid-level role for an early-career candidate"
+        return result
+
+    # Hard community formats stay rejected. "Repost / follow / comment" is only
+    # a rejection when there is no concrete role in the post; a real hiring post
+    # often ends with "repost to help".
+    community = community_reason(text)
+    if community:
+        hard = {"webinar/course", "opinion bait", "link in bio", "community"}
+        if community in hard or not role:
+            result["reason"] = f"community post ({community})"
+            return result
 
     avoid = discovery.matches_avoid(profile, text)
     if avoid:

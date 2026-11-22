@@ -268,25 +268,61 @@ _SKIP_KEYS = {
 _ID_LIKE = re.compile(r"^(\$L?[0-9a-f]+|text-attr-\d+|auto-component-\d+|[\$0-9a-f]{1,4})$", re.I)
 
 
-def _collect_text(node, out: list[str], depth: int = 0) -> None:
-    if depth > 14:
+_TAGS = {
+    "span",
+    "div",
+    "br",
+    "strong",
+    "em",
+    "a",
+    "p",
+    "li",
+    "ul",
+    "ol",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "img",
+    "button",
+    "null",
+    "true",
+    "false",
+}
+
+
+def _collect_text(node, out: list[str], chunks: dict[str, object], depth: int = 0) -> None:
+    if depth > 18:
         return
     if isinstance(node, str):
+        reference = re.match(r"^\$L([0-9a-f]+)$", node.strip())
+        if reference:
+            chunk = chunks.get(reference.group(1))
+            if chunk is not None:
+                _collect_text(chunk, out, chunks, depth + 1)
+            return
         text = node.strip()
-        if not text or text in ("$",) or _ID_LIKE.match(text):
+        if (
+            not text
+            or text == "$"
+            or text.startswith("$")
+            or ":props:" in text
+            or text.lower() in _TAGS
+            or _ID_LIKE.match(text)
+        ):
             return
         out.append(text)
         return
     if isinstance(node, list):
         for value in node:
-            _collect_text(value, out, depth + 1)
+            _collect_text(value, out, chunks, depth + 1)
         return
     if isinstance(node, dict):
         for key, value in node.items():
             if key in _SKIP_KEYS:
                 continue
             if key in ("children", "textProps", "text", "content", "commentary", "textComponent"):
-                _collect_text(value, out, depth + 1)
+                _collect_text(value, out, chunks, depth + 1)
         return
 
 
@@ -308,9 +344,9 @@ def _walk_find(node, key: str, depth: int = 0):
     return None
 
 
-def _rsc_lines(text: str) -> list[tuple[int, object]]:
-    """(position, parsed JSON) for every ``id:{...}`` line in the RSC stream."""
-    out: list[tuple[int, object]] = []
+def _rsc_lines(text: str) -> list[tuple[int, str, object]]:
+    """(position, chunk id, parsed JSON) for every ``id:{...}`` line in the stream."""
+    out: list[tuple[int, str, object]] = []
     position = 0
     for raw in (text or "").splitlines():
         start = text.find(raw, position) if raw else position
@@ -322,7 +358,7 @@ def _rsc_lines(text: str) -> list[tuple[int, object]]:
             value = json.loads(match.group(2))
         except (ValueError, TypeError):
             continue
-        out.append((start, value))
+        out.append((start, match.group(1), value))
     return out
 
 
@@ -367,18 +403,23 @@ def parse_rsc_posts(text: str) -> list[dict]:
     regions: list[tuple[int, str]] = []
     anchors: list[tuple[int, dict]] = []
     legacy: list[tuple[int, dict]] = []
+    lines = _rsc_lines(text)
+    chunks = {chunk_id: value for _position, chunk_id, value in lines}
 
-    for position, value in _rsc_lines(text):
+    for position, _chunk_id, value in lines:
         raw = json.dumps(value)
         if "commentary_text" in raw:
             collected: list[str] = []
-            _collect_text(value, collected)
+            _collect_text(value, collected, chunks)
             content = " ".join(" ".join(collected).split())
             if content:
                 regions.append((position, content))
         if "actorName" in raw and ("postSlugUrl" in raw or "activityId" in raw):
             activity = _walk_find(value, "activityId")
             slug_url = _walk_find(value, "postSlugUrl") or ""
+            slug_activity = re.search(r"activity-(\d+)-", str(slug_url))
+            if slug_activity:
+                activity = slug_activity.group(1)
             author = _walk_find(value, "actorName") or ""
             if activity or slug_url:
                 anchors.append(

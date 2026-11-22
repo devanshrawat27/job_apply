@@ -155,7 +155,6 @@ def test_company_page_and_community_posts_are_rejected():
     }
     verdict = linkedin_post_filter.assess(profile(), community)
     assert verdict["ok"] is False
-    assert "community" in verdict["reason"]
 
 
 def test_job_seeker_and_stack_mismatch_are_rejected():

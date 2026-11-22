@@ -977,7 +977,9 @@ def looks_like_job_post(text: str) -> bool:
         "comment", "link in bio", "reach out", "whatsapp", "telegram",
     )
 
-    has_intent = any(phrase in lowered for phrase in intent_phrases)
+    has_intent = any(phrase in lowered for phrase in intent_phrases) or bool(
+        re.search(r"\bhiring\s+\d+\b", lowered)
+    )
     has_role = any(
         re.search(rf"\b{re.escape(word)}s?\b", lowered) is not None for word in role_words
     )
