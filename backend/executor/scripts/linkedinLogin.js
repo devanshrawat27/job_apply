@@ -24,9 +24,13 @@ async function findVisible(page, selectors, timeoutMs) {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     for (const selector of selectors) {
-      const locator = page.locator(selector).first()
-      const visible = await locator.isVisible().catch(() => false)
-      if (visible) return locator
+      const locator = page.locator(selector)
+      const count = await locator.count().catch(() => 0)
+      for (let index = 0; index < count; index += 1) {
+        const item = locator.nth(index)
+        const visible = await item.isVisible().catch(() => false)
+        if (visible) return item
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
@@ -34,14 +38,19 @@ async function findVisible(page, selectors, timeoutMs) {
 }
 
 async function submit(page) {
-  await page.keyboard.press('Enter')
-  const button = page
-    .locator('button[type="submit"], button')
-    .filter({ hasText: /^(sign in|log in|submit|continue|verify)$/i })
-    .first()
-  if (await button.isVisible().catch(() => false)) {
-    await humanClick(page, button)
+  const buttons = page.locator('button[type="submit"], button')
+  const count = await buttons.count().catch(() => 0)
+  for (let index = 0; index < count; index += 1) {
+    const item = buttons.nth(index)
+    const visible = await item.isVisible().catch(() => false)
+    if (!visible) continue
+    const label = ((await item.innerText().catch(() => '')) || '').trim()
+    if (/^(sign in|log in|submit|continue|verify)$/i.test(label)) {
+      await humanClick(page, item)
+      return
+    }
   }
+  await page.keyboard.press('Enter')
 }
 
 async function readSession(context) {
@@ -58,6 +67,10 @@ async function signedInName(page) {
 }
 
 async function login() {
+  // Sign in in a dedicated browser profile. Attaching to the warm X browser
+  // would move the X page to LinkedIn and close the X host when this ends.
+  delete process.env.BROWSER_CDP_ENDPOINT
+  process.env.JOBPILOT_PROFILE_SUFFIX = `${process.env.JOBPILOT_PROFILE_SUFFIX || ''}-linkedin`
   const { context, page } = await launchBrowser({ withSession: false })
 
   try {
@@ -118,11 +131,19 @@ async function login() {
         break
       }
       const body = (await page.locator('body').innerText().catch(() => '')).toLowerCase()
-      if (/wrong password|incorrect password|password you entered|try again/.test(body)) {
-        return reportFail('LOGIN_FAILED', 'LinkedIn says the password is wrong.')
+      if (
+        /wrong password|incorrect password|password you entered|try again|couldn'?t find your linkedin account|we couldn'?t find|wrong email or password|email or password you entered isn'?t correct|not the right password/.test(
+          body,
+        )
+      ) {
+        return reportFail('LOGIN_FAILED', 'LinkedIn rejected the email or password.')
       }
       if (/couldn'?t find your account|no account found|not found/.test(body)) {
         return reportFail('LOGIN_FAILED', 'LinkedIn could not find that email.')
+      }
+      if (/security check|captcha|verify you'?re human|unusual activity|checkpoint/.test(body)) {
+        checkpoint = true
+        break
       }
       await new Promise((resolve) => setTimeout(resolve, 800))
     }

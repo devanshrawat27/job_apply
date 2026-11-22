@@ -37,10 +37,6 @@ def connect(
     payload: LinkedInConnectIn, user: CurrentUser = None, db: Session = Depends(get_db)
 ) -> LinkedInAccountOut:
     uid = _uid(user)
-    existing = linkedin_accounts.active_account(db, uid)
-    if existing is not None:
-        db.delete(existing)
-        db.commit()
     result = linkedin_accounts.connect_with_password(
         db,
         payload.email,
