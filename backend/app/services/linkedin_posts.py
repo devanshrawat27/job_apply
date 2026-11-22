@@ -243,6 +243,33 @@ def search_posts(
     return posts[:limit]
 
 
+def job_detail(credentials: dict[str, str], job_id: str):
+    """Read a job description with the member's session (for the experience gate).
+
+    Uses the public job page HTML, not a browser. When the session is rejected or
+    throttled the caller keeps the card-only result instead of inventing details.
+    """
+    if not credentials.get("li_at") or not credentials.get("JSESSIONID"):
+        raise PostsUnavailable("no LinkedIn session")
+    headers = _headers(credentials, referer=f"{BASE}/jobs/view/{job_id}/")
+    headers["accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+    try:
+        with httpx.Client(headers=headers, timeout=35, follow_redirects=True) as client:
+            response = client.get(f"{BASE}/jobs-guest/jobs/api/jobPosting/{job_id}")
+    except httpx.HTTPError as exc:
+        raise PostsUnavailable(f"could not reach LinkedIn: {exc}") from exc
+    if response.status_code == 401:
+        raise PostsAuthRequired("LinkedIn rejected the session")
+    if response.status_code in (429, 999):
+        _block(f"HTTP {response.status_code}")
+        raise PostsBlocked(f"LinkedIn rate limit (HTTP {response.status_code})")
+    if response.status_code != 200:
+        raise PostsUnavailable(f"LinkedIn returned HTTP {response.status_code}")
+    from app.services import linkedin_guest
+
+    return linkedin_guest.parse_detail(response.text, str(job_id))
+
+
 # --------------------------------------------------------------------- parser
 
 _SKIP_KEYS = {

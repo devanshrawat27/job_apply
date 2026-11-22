@@ -928,7 +928,7 @@ def scan_linkedin(
     manual: bool = False,
     run: Run | None = None,
     user_id: int | None = None,
-    detail_budget: int = 0,
+    detail_budget: int | None = None,
 ) -> Run:
     """Find jobs on LinkedIn's public jobs board.
 
@@ -978,6 +978,13 @@ def scan_linkedin(
             run.finished_at = _now()
             db.commit()
             return run
+
+        li_account = linkedin_accounts.active_account(db, user_id)
+        li_creds = linkedin_accounts.credentials(li_account) if li_account else None
+        if detail_budget is None:
+            # With a session we can read a few descriptions and check the stated
+            # experience. Without one, stay card-only (the public board).
+            detail_budget = 3 if li_creds else 0
 
         pause_until = _as_utc(settings_row.linkedin_pause_until)
         if pause_until is not None and _now() < pause_until:
@@ -1104,18 +1111,31 @@ def scan_linkedin(
                     continue
 
                 detail: dict = {}
-                if details_opened < detail_budget:
+                if details_opened < detail_budget and li_creds:
                     try:
-                        detail = linkedin_guest.job_detail(card["job_id"])
-                    except linkedin_guest.LinkedInBlocked as exc:
+                        detail = linkedin_posts.job_detail(li_creds, card["job_id"])
+                    except linkedin_posts.PostsAuthRequired:
+                        li_account.status = "expired"
+                        db.commit()
+                        stats["errors"].append("LinkedIn session expired while reading a job")
+                        stop = True
+                        break
+                    except linkedin_posts.PostsBlocked as exc:
                         stats["errors"].append(f"LinkedIn paused: {exc.reason}")
                         remember_block()
                         stop = True
                         break
-                    except linkedin_guest.LinkedInError as exc:
-                        stats["errors"].append(f"detail failed for {card['job_id']}: {exc}")
+                    except linkedin_posts.PostsUnavailable as exc:
+                        stats["errors"].append(f"description not read ({exc}) - skipped")
+                        continue
                     details_opened += 1
                     stats["details_opened"] = details_opened
+
+                if li_creds and not detail:
+                    stats["errors"].append(
+                        "description not read - experience could not be checked, skipped"
+                    )
+                    continue
 
                 verdict = linkedin_jobs.assess(profile, card, detail)
                 if not verdict["ok"]:
