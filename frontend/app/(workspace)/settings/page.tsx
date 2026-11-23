@@ -569,8 +569,28 @@ export default function SettingsPage() {
             checked={Boolean(form.linkedin_enabled)}
             onChange={(linkedin_enabled) => patch({ linkedin_enabled })}
             label="Find jobs on LinkedIn"
-            hint="Reads LinkedIn's public jobs board every hour. Only jobs posted in the last 2 hours are added, and they leave the list after 2 hours. Each job opens on LinkedIn."
+            hint={`Reads LinkedIn's public jobs board every hour. Only jobs and posts from the last ${form.linkedin_max_age_hours || 6} hours are added, and older ones leave the list. Each opens on LinkedIn.`}
           />
+          <Field
+            label="LinkedIn freshness (hours)"
+            hint="1–24. Lower is fresher but fewer jobs; higher gives more listings."
+          >
+            <Input
+              type="number"
+              min={1}
+              max={24}
+              value={form.linkedin_max_age_hours ?? 6}
+              onChange={(event) =>
+                patch({
+                  linkedin_max_age_hours: Math.max(
+                    1,
+                    Math.min(24, Number(event.target.value) || 6),
+                  ),
+                })
+              }
+              className="max-w-28"
+            />
+          </Field>
           {form.linkedin_pause_until ? (
             <p className="text-xs text-amber-600 dark:text-amber-400">
               LinkedIn paused until{' '}

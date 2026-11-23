@@ -371,7 +371,11 @@ class AgentLoop(threading.Thread):
         # old listings in front of the human.
         if settings_row.linkedin_enabled:
             try:
-                expired = pipeline.expire_stale_linkedin(db, user_id)
+                expired = pipeline.expire_stale_linkedin(
+                    db,
+                    user_id,
+                    max_age_minutes=max(1, int(settings_row.linkedin_max_age_hours or 6)) * 60,
+                )
                 if expired:
                     logger.info("user %s closed %s stale LinkedIn jobs", user_id, expired)
             except Exception:  # noqa: BLE001 - never break the loop

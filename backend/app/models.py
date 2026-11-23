@@ -196,6 +196,9 @@ class AgentSettings(Base):
     closed_inbox_handles: Mapped[list] = mapped_column(JSON, default=list)
     # LinkedIn job discovery needs no login, so it is on by default.
     linkedin_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # LinkedIn fills up fast, but two hours was too tight. The human can widen
+    # this window in Settings.
+    linkedin_max_age_hours: Mapped[int] = mapped_column(Integer, default=6)
     # Search LinkedIn posts too (needs a connected LinkedIn account).
     linkedin_posts_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Last terms used for LinkedIn post search, so the rotation does not repeat.

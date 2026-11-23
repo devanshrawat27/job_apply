@@ -100,10 +100,9 @@ SEARCH_BUDGET_S = 420
 # detail budget can be raised later (a job page is ~10x heavier than a card).
 LINKEDIN_DETAIL_BUDGET = 0
 LINKEDIN_MIN_RELEVANCE = 40
-# LinkedIn is crowded: a job that is already a few hours old has hundreds of
-# applicants. Only listings posted inside this window are added. Existing rows
-# are never removed; the rule applies to new discoveries only.
-LINKEDIN_MAX_AGE_MINUTES = 120
+# LinkedIn fills up fast, but two hours was too tight. Six hours is the default;
+# the human can widen it in Settings (1-24 hours).
+LINKEDIN_MAX_AGE_MINUTES = 360
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -755,6 +754,8 @@ def scan_linkedin_posts(
             return run
 
         account = linkedin_accounts.active_account(db, user_id)
+        max_age_hours = max(1, min(24, int(settings_row.linkedin_max_age_hours or 6)))
+        max_age_minutes = max_age_hours * 60
         creds = linkedin_accounts.credentials(account) if account else None
         if not creds:
             run.status = "skipped"
@@ -837,10 +838,10 @@ def scan_linkedin_posts(
                 if posted_at is not None:
                     posted_at = _as_utc(posted_at)
                     if posted_at is not None and _now() - posted_at > timedelta(
-                        minutes=LINKEDIN_MAX_AGE_MINUTES
+                        minutes=max_age_minutes
                     ):
                         stats["rejected"] += 1
-                        key = f"older than {LINKEDIN_MAX_AGE_MINUTES // 60} hours"
+                        key = f"older than {max_age_hours} hours"
                         stats["rejected_reasons"][key] = (
                             stats["rejected_reasons"].get(key, 0) + 1
                         )
@@ -1032,9 +1033,11 @@ def scan_linkedin(
             return run
 
         junior = linkedin_jobs.is_junior(profile)
+        max_age_hours = max(1, min(24, int(settings_row.linkedin_max_age_hours or 6)))
+        max_age_minutes = max_age_hours * 60
         experience = (1, 2, 3) if junior else (3, 4, 5)
         job_types = "F,I,C" if junior else "F,C"
-        since_hours = max(1, LINKEDIN_MAX_AGE_MINUTES // 60)
+        since_hours = max_age_hours
 
         existing_stmt = select(JobPost.post_id)
         hashes_stmt = select(JobPost.content_hash)
@@ -1105,9 +1108,9 @@ def scan_linkedin(
 
                 posted_value = card.get("posted_text") or card.get("posted_at")
                 age_minutes = linkedin_guest.posted_age_minutes(posted_value)
-                if age_minutes is None or age_minutes > LINKEDIN_MAX_AGE_MINUTES:
+                if age_minutes is None or age_minutes > max_age_minutes:
                     reject(
-                        f"older than {LINKEDIN_MAX_AGE_MINUTES // 60} hours"
+                        f"older than {max_age_hours} hours"
                         + (f" ({posted_value})" if posted_value else "")
                     )
                     continue

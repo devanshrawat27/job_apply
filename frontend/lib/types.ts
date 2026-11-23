@@ -94,6 +94,7 @@ export interface AgentSettings {
   chatgpt_browser_enabled: boolean
   closed_inbox_handles?: string[]
   linkedin_enabled: boolean
+  linkedin_max_age_hours: number
   linkedin_posts_enabled?: boolean
   linkedin_pause_until?: string | null
 }

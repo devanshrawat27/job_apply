@@ -65,6 +65,9 @@ def _column_default_sql(column) -> str:
         default = getattr(column.default, "arg", False) if column.default is not None else False
         return " DEFAULT 1" if default is True else " DEFAULT 0"
     if python_type in (int, float):
+        default = getattr(column.default, "arg", None) if column.default is not None else None
+        if isinstance(default, (int, float)) and not isinstance(default, bool):
+            return f" DEFAULT {default}"
         return " DEFAULT 0"
     if python_type in (list, dict):
         return " DEFAULT '[]'"

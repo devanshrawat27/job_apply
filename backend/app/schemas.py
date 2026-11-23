@@ -150,6 +150,7 @@ class SettingsIn(BaseModel):
     chatgpt_browser_enabled: bool | None = None
     closed_inbox_handles: list[str] | None = None
     linkedin_enabled: bool | None = None
+    linkedin_max_age_hours: int | None = None
     linkedin_posts_enabled: bool | None = None
 
 
@@ -173,6 +174,7 @@ class SettingsOut(BaseModel):
     chatgpt_browser_enabled: bool
     closed_inbox_handles: list[str] = []
     linkedin_enabled: bool = True
+    linkedin_max_age_hours: int = 6
     linkedin_posts_enabled: bool = True
     linkedin_pause_until: datetime | None = None
     model_config = {"from_attributes": True}

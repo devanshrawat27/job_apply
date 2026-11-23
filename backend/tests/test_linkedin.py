@@ -347,7 +347,7 @@ def test_stale_linkedin_jobs_leave_the_list(db):
         post_id="li:old",
         source="linkedin",
         status="new",
-        posted_at=datetime.now(timezone.utc) - timedelta(hours=3),
+        posted_at=datetime.now(timezone.utc) - timedelta(hours=7),
     )
     db.add_all([fresh, old])
     db.commit()
@@ -358,4 +358,4 @@ def test_stale_linkedin_jobs_leave_the_list(db):
     db.refresh(old)
     assert fresh.status == "new"
     assert old.status == "rejected"
-    assert "older than 2 hours" in old.decision_reason
+    assert "older than 6 hours" in old.decision_reason
