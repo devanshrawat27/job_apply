@@ -7,7 +7,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app.agents import composer, email_writer, job_filter, people
+from app.agents import composer, discovery, email_writer, job_filter, people
 from app.database import SessionLocal, get_db
 from app.deps import CurrentUser
 from app.llm import LLMUnavailable
@@ -318,6 +318,26 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
     if profile is None:
         raise HTTPException(status_code=400, detail="Set up your profile first")
 
+    # A redraft must not revive a job the candidate cannot take. Old queued rows
+    # predate the current gates, so check them again before asking the model.
+    gap = discovery.eligibility_gap(profile, job.content or "") or discovery.domain_mismatch(
+        profile, job.content or ""
+    )
+    required = discovery.required_experience_months(job.content or "")
+    if not gap and required > discovery.experience_limit(profile):
+        gap = f"needs about {required // 12} years of experience, you have less"
+    if gap:
+        job.status = "rejected"
+        job.decision_reason = gap
+        job.reply_text = ""
+        job.dm_text = ""
+        job.email_subject = ""
+        job.email_body = ""
+        job.confidence = 0.0
+        db.commit()
+        db.refresh(job)
+        return job
+
     settings_row = pipeline.get_settings_row(db, uid)
     providers = pipeline.llm_providers(db, uid)
     use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(uid)
@@ -338,12 +358,35 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
                 job,
                 examples,
                 budget_s=120,
+                previous=job.dm_text or job.reply_text or "",
                 providers=providers,
                 browser_fallback=use_browser,
                 browser_user_id=uid,
             )
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         raise HTTPException(status_code=502, detail=str(exc)[:300])
+
+    if draft.get("template"):
+        raise HTTPException(
+            status_code=503,
+            detail="The AI is unavailable right now. Your old draft was kept - try redraft again in a minute.",
+        )
+
+    if draft.get("eligible") is False:
+        reason = (
+            str(draft.get("eligibility_reason") or draft.get("reason") or "").strip()
+            or "candidate does not qualify"
+        )
+        job.status = "rejected"
+        job.decision_reason = f"not eligible: {reason}"
+        job.reply_text = ""
+        job.dm_text = ""
+        job.email_subject = ""
+        job.email_body = ""
+        job.confidence = 0.0
+        db.commit()
+        db.refresh(job)
+        return job
 
     if job.outreach_method == "email":
         job.reply_text = ""

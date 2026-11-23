@@ -34,8 +34,15 @@ Hard rules:
 - Never claim you sent a DM, and never say "my DMs are open". The reply must
   stand alone even if no DM is sent.
 - No links, no hashtags, no emoji spam in the public reply.
-- The DM is personal: reference the actual role and the detail, give one concrete
-  proof point, include the candidate's portfolio or GitHub link once, and ask one clear question.
+- The DM is personal: 3 short lines. Name the exact stack/domain detail from
+  the post, connect it to hands-on experience in that stack/domain, then ask one
+  specific question about the role or team. Include the candidate's portfolio or
+  GitHub link once.
+- NEVER name a specific project, product, client, repository, or side project.
+  Talk about the technology/domain ("event-driven Node services", "Postgres
+  reporting pipelines"), not "my project X".
+- Show effort: the message should prove the post was read (a responsibility, a
+  stack choice, a constraint), not just restate the job title.
 - Sound like a person, not a recruiter. No "I hope this message finds you well",
   no "I am writing to express my interest", no "I came across your post".
 - Return strict JSON only.
@@ -69,6 +76,7 @@ text:
 
 {match_note}
 {followup_note}
+{redraft_note}
 
 {examples}
 Return JSON:
@@ -76,11 +84,19 @@ Return JSON:
   "eligible": true,
   "eligibility_reason": "why the candidate cannot qualify, or empty",
   "reply_text": "the public reply, under 260 chars",
-  "dm_text": "the DM, max 500 chars, 2-3 short lines",
-  "used_detail": "the exact phrase from the post you referenced",
+  "dm_text": "the DM, max 600 chars, 3 short lines",
+  "used_detail": "the exact stack/domain phrase from the post you referenced",
   "confidence": 0.0,
   "uncertainties": ["specific reasons you are not sure this is the right move"]
 }}
+
+DM quality bar (this is what humans judge):
+  - Line 1: the exact stack/domain/responsibility from the post, in your own words.
+  - Line 2: how you work with that stack/domain today, without naming a project.
+  - Line 3: one specific question about the role/team + availability, then the link.
+  - No project names, product names, client names, or "I built <thing>".
+  - Pick one or two technologies the post actually cares about. Do not list five skills.
+  - Do not restate the job title. Do not open with "I saw your post" or "I'm interested".
 
 eligibility (do this FIRST):
   Check the post against the candidate above. Set "eligible": false and fill
@@ -113,6 +129,31 @@ product, or the problem) in BOTH the reply and the DM. Do not write anything
 that could be pasted under another hiring post.
 """
 
+REDRAFT_NOTE = """REDRAFT REQUEST: the candidate read the previous draft and it was too simple.
+Write a noticeably better one from scratch:
+- Do not reuse the previous opening sentence, structure or wording.
+- Name one exact stack/domain detail from the post and connect it to hands-on
+  experience in that stack/domain. No project names, products or clients.
+- Show that you read the responsibilities: mention one specific thing the role
+  owns ("background jobs", "reporting pipelines", "design-system work").
+- End with a sharper question about the team/role, not "can I send my resume".
+Previous draft:
+---
+{previous}
+---
+"""
+
+PROJECT_NOTE = """
+IMPORTANT: do not mention any project, side project, repository, product or
+client by name. Talk only about the stack/domain and the work you do with it.
+Also make the message specific to this post.
+"""
+
+_PROJECT_RE = re.compile(
+    r"\b(projects?|side project|repository|repo|portfolio project|built an app)\b",
+    re.I,
+)
+
 # Posts with these signals are never auto-sent, no matter what the model says.
 BLOCKERS = (
     "unpaid",
@@ -135,7 +176,8 @@ _STOPWORDS = {
 
 
 def _short(text: str, limit: int) -> str:
-    text = re.sub(r"\s+", " ", (text or "").strip())
+    text = re.sub(r"[ \t]+", " ", (text or "").strip())
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "\u2026"
 
 
@@ -182,34 +224,43 @@ def _fallback(profile: Profile, post: JobPost) -> dict:
     post_text = (post.content or "").lower()
     shared = [skill for skill in (profile.skills or []) if skill and skill.lower() in post_text]
 
-    if profile.pitch:
-        proof = profile.pitch
-    elif profile.current_role:
-        proof = f"I work as a {profile.current_role}" + (
-            f" at {profile.current_company}" if profile.current_company else ""
-        )
-    elif profile.skills:
-        proof = f"I work with {', '.join((profile.skills or [])[:3])}"
-    else:
-        proof = "I build software"
-
     stack = ", ".join(shared[:3]) or ", ".join((profile.skills or [])[:3]) or "this stack"
 
+    if profile.current_role:
+        proof = f"I'm currently {profile.current_role}" + (
+            f" at {profile.current_company}" if profile.current_company else ""
+        )
+        proof += f", working with {stack} day to day."
+    elif profile.pitch:
+        proof = profile.pitch
+    elif profile.skills:
+        proof = f"I work with {stack} day to day."
+    else:
+        proof = "I build software."
+
     reply = _short(
-        f"You're hiring for {target} \u2014 I ship production work with {stack}, "
-        f"so this is a strong fit. Happy to share the two most relevant projects.",
+        f"You're hiring for {target} \u2014 I work with {stack} day to day, "
+        f"so this is a strong fit. Happy to talk about the role.",
         250,
     )
 
-    dm_lines = [f"Hi \u2014 saw the {target} post ({stack}).", f"{proof}."]
+    dm_lines = [f"Hi \u2014 your {target} post mentions {stack}.", proof]
     link = _link_line(profile)
     if link:
         dm_lines.append(link)
-    dm_lines.append("Want me to send the two most relevant projects?")
+    shared_skill = shared[0] if shared else ""
+    question = (
+        f"How is the team set up around {shared_skill}?"
+        if shared_skill
+        else "Would you be open to a short chat about the role this week?"
+    )
+    dm_lines.append(question)
 
     return {
+        "eligible": True,
+        "eligibility_reason": "",
         "reply_text": reply,
-        "dm_text": _short("\n".join(dm_lines), 500),
+        "dm_text": _short("\n".join(dm_lines), 600),
         "used_detail": f"{role}" if not company else f"{role} at {company}",
         "confidence": 0.35,
         "uncertainties": ["template draft (LLM unavailable) - please review"],
@@ -241,14 +292,14 @@ def _match_note(post: JobPost) -> str:
         return (
             "MATCH LEVEL: very high. This post closely matches the candidate's role. "
             "In BOTH the reply and the DM, name TWO exact requirements from the post "
-            "(specific technology, product, or problem) and map each to a real project "
-            "or skill from the candidate profile. Be concrete - no generic enthusiasm, "
-            "no restating the job title back at them."
+            "(specific stack, product, or problem) and map each to the candidate's "
+            "hands-on experience in that stack/domain. Do not name a project or client. "
+            "Be concrete - no generic enthusiasm, no restating the job title back at them."
         )
     if relevance >= 60:
         return (
             "MATCH LEVEL: good. Reference one exact requirement from the post and tie it "
-            "to a real project or skill from the candidate profile."
+            "to real hands-on experience in that stack/domain. Do not name a project."
         )
     return ""
 
@@ -264,6 +315,13 @@ def _followup_note(follow_up: int) -> str:
     )
 
 
+def _redraft_note(previous: str | None) -> str:
+    text = " ".join((previous or "").split())
+    if not text:
+        return ""
+    return REDRAFT_NOTE.format(previous=_short(text, 800))
+
+
 def compose(
     profile: Profile,
     post: JobPost,
@@ -271,6 +329,7 @@ def compose(
     *,
     budget_s: float | None = None,
     follow_up: int = 0,
+    previous: str | None = None,
     providers: list[dict] | None = None,
     browser_fallback: bool = False,
     browser_user_id: int | None = None,
@@ -304,11 +363,17 @@ def compose(
         examples=_style_examples(examples),
         match_note=_match_note(post),
         followup_note=_followup_note(follow_up),
+        redraft_note=_redraft_note(previous),
     )
 
     result: dict | None = None
     for attempt in range(2):
-        user_prompt = prompt if attempt == 0 else prompt + RETRY_NOTE
+        if attempt == 0:
+            user_prompt = prompt
+        elif result and result.get("mentions_project"):
+            user_prompt = prompt + PROJECT_NOTE
+        else:
+            user_prompt = prompt + RETRY_NOTE
         try:
             data = complete_json(
                 SYSTEM,
@@ -340,9 +405,9 @@ def compose(
             break
 
         result = _build_result(profile, post, data)
-        if not result["generic"]:
+        if not result["generic"] and not result.get("mentions_project"):
             break
-        logger.info("draft was generic, retrying once with a harder instruction")
+        logger.info("draft was generic or mentioned a project, retrying once")
 
     if result is None:
         return _apply_safety(post, _fallback(profile, post))
@@ -350,13 +415,24 @@ def compose(
 
 
 def _build_result(profile: Profile, post: JobPost, data: dict) -> dict:
+    eligible = data.get("eligible", True) is not False
     result = {
+        "eligible": eligible,
+        "eligibility_reason": str(
+            data.get("eligibility_reason") or data.get("reason") or ""
+        )[:300],
         "reply_text": _short(str(data.get("reply_text", "")), 260),
         "dm_text": str(data.get("dm_text", "")).strip(),
         "used_detail": str(data.get("used_detail") or ""),
         "confidence": _clamp(data.get("confidence", 0.0)),
         "uncertainties": [str(u) for u in (data.get("uncertainties") or [])][:6],
     }
+
+    if not eligible:
+        # The model already decided this role is not for the candidate. Never
+        # replace that with a template DM - the caller rejects the job.
+        result.update({"reply_text": "", "dm_text": "", "confidence": 0.0, "generic": False})
+        return result
 
     if not result["dm_text"]:
         fallback = _fallback(profile, post)
@@ -372,12 +448,13 @@ def _build_result(profile: Profile, post: JobPost, data: dict) -> dict:
     if missing:
         result["dm_text"] = _short(
             result["dm_text"].rstrip() + "\n" + " \u00b7 ".join(missing),
-            500,
+            600,
         )
 
     result["generic"] = is_generic(result["reply_text"], post) and is_generic(
         result["dm_text"], post
     )
+    result["mentions_project"] = bool(_PROJECT_RE.search(result["dm_text"]))
     return result
 
 
@@ -402,6 +479,17 @@ def _apply_safety(post: JobPost, result: dict) -> dict:
     if generic:
         result["confidence"] = min(result["confidence"], 0.45)
         result["uncertainties"].append("draft looks generic - it does not reference the post")
+
+    result["mentions_project"] = bool(_PROJECT_RE.search(result.get("dm_text", "")))
+    if result["mentions_project"]:
+        # The candidate explicitly asked for no project names. Drop the sentence
+        # that names one instead of sending it with a warning.
+        pieces = re.split(r"(?<=[.!?])\s+|\n+", result.get("dm_text", ""))
+        kept = [piece for piece in pieces if piece.strip() and not _PROJECT_RE.search(piece)]
+        if kept:
+            result["dm_text"] = _short(" ".join(kept), 600)
+        result["confidence"] = min(result["confidence"], 0.5)
+        result["uncertainties"].append("removed a project mention from the draft")
 
     return result
 

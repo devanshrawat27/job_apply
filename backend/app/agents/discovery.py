@@ -763,7 +763,7 @@ _US_ONLY_RE = re.compile(
     r"\bsecurity clearance\b|\bts/sci\b|\btop secret\b|\bpublic trust\b|"
     r"\bgreen card\b|\bgc holder\b|\b(?:authorized|eligible) to work in the (?:us|united states)\b|"
     r"\bno (?:visa )?sponsorship\b|\bunable to sponsor\b|\bcannot sponsor\b|"
-    r"\bus work authorization\b",
+    r"\bus work authorization\b|\bw2\b|\bw-2\b",
     re.I,
 )
 _US_LOCATION_RE = re.compile(
