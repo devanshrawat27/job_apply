@@ -14,6 +14,7 @@ filtered later, but this saves quota and noise).
 from __future__ import annotations
 
 import hashlib
+import re
 
 HIRING_SIGNALS = (
     '"is hiring for"',
@@ -290,3 +291,22 @@ def keyword_pool() -> tuple[str, ...]:
                 seen.add(key)
                 out.append(term.strip('"'))
     return tuple(out)
+
+
+def clean_keyword(value: str) -> str:
+    """Normalise a model-suggested keyword for a real search box.
+
+    ChatGPT sometimes returns the prompt's table labels or boolean syntax:
+    ``jobs | fresher developer``, ``posts | hiring intern``,
+    ``React Developer AND remote``. Those are literal searches and return zero.
+    """
+    text = str(value or "").replace('"', " ").replace("|", " ")
+    text = re.sub(r"^\s*(?:jobs?|posts?)\s*[:\-]\s*", " ", text, flags=re.I)
+    text = re.sub(r"^\s*(?:jobs?|posts?)\s+(?=[A-Za-z0-9])", " ", text, flags=re.I)
+    text = re.sub(r"\s+AND\s+", " ", text, flags=re.I)
+    text = " ".join(text.split()).strip(" -:;,")
+    if len(text) < 3 or len(text) > 90:
+        return ""
+    if not re.search(r"[A-Za-z]", text):
+        return ""
+    return text

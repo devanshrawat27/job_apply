@@ -25,6 +25,7 @@ def _to_out(account: XAccount) -> AccountOut:
         has_dm_passcode=bool(account.dm_passcode),
         can_auto_reconnect=accounts.password_saved(account),
         last_checked_at=account.last_checked_at,
+        dm_status=account.dm_status or "ok",
     )
 
 

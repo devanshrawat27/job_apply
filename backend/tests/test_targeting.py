@@ -120,8 +120,8 @@ def _post(post_id: str, text: str) -> dict:
         "post_id": post_id,
         "post_url": f"https://x.com/i/web/status/{post_id}",
         "post_content": text,
-        "author_handle": "hiringguy",
-        "author_name": "Hiring",
+        "author_handle": "devfounder",
+        "author_name": "Dev Founder",
         "posted_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
     }
 

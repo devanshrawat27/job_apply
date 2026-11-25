@@ -72,6 +72,9 @@ def pick_terms(db: Session, profile: Profile, user_id: int | None = None) -> lis
             logging.getLogger(__name__).info("retiring barren LinkedIn keyword %r", row.keyword)
         elif uses >= RETIRE_AFTER_USES + 2 and seen == 0:
             row.status = "retired"
+        elif uses >= 5 and _score(row) < 0.10:
+            row.status = "retired"
+            logging.getLogger(__name__).info("retiring low-yield LinkedIn keyword %r", row.keyword)
     db.flush()
 
     usable = [row for row in rows if row.status in ("candidate", "active")]

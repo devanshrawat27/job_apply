@@ -1080,6 +1080,12 @@ export default function SettingsPage() {
                       : 'Connected. If X logs you out, reconnect here.'}
                   {account.has_dm_passcode ? ' · DM passcode saved' : ''}
                 </p>
+                {account.dm_status === 'unverified' ? (
+                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
+                    X is blocking cold DMs from this account (sender verification needed). Replies
+                    and email applications still work.
+                  </p>
+                ) : null}
               </div>
               <div className="flex items-center gap-2">
                 {account.status === 'expired' ? (

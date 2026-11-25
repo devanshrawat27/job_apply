@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 MAX_KEYWORDS_PER_SCAN = 4
 PINNED_PER_SCAN = 3
 ACTIVATE_SCORE = 0.30
-RETIRE_SCORE = 0.08
-MAX_ROWS = 80
+RETIRE_SCORE = 0.12
+MAX_ROWS = 50
 
 # A keyword is "barren" when it has had a fair chance and produced nothing.
 BARREN_MIN_USES = 2
@@ -440,6 +440,18 @@ def _prune(db: Session, user_id: int | None = None) -> None:
     if user_id is not None:
         stmt = stmt.where(SearchQuery.user_id == user_id)
     rows = list(db.scalars(stmt.order_by(SearchQuery.score.asc(), SearchQuery.uses.asc())))
+    now = datetime.now(timezone.utc)
+
+    for row in list(rows):
+        if int(row.uses or 0) > 0 or row.created_at is None:
+            continue
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if now - created > timedelta(days=2):
+            db.delete(row)
+            rows.remove(row)
+
     overflow = len(rows) - MAX_ROWS
     for row in rows[: max(0, overflow)]:
         db.delete(row)

@@ -100,6 +100,10 @@ SEARCH_BUDGET_S = 420
 # detail budget can be raised later (a job page is ~10x heavier than a card).
 LINKEDIN_DETAIL_BUDGET = 0
 LINKEDIN_MIN_RELEVANCE = 40
+# A job found on X stays fresh for this long. Older posts get plenty of replies
+# already and are not worth an auto-application.
+X_MAX_AGE_HOURS = 12
+
 # LinkedIn fills up fast, but two hours was too tight. Six hours is the default;
 # the human can widen it in Settings (1-24 hours).
 LINKEDIN_MAX_AGE_MINUTES = 360
@@ -324,6 +328,9 @@ def scan(
             posted_at = _parse_time(raw.get("posted_at"))
             if not discovery.is_fresh(posted_at, settings_row.lookback_hours, now):
                 continue
+            if posted_at is not None and now - posted_at > timedelta(hours=X_MAX_AGE_HOURS):
+                stats["rejected"] += 1
+                continue
 
             fingerprint = discovery.content_fingerprint(text)
             if fingerprint and fingerprint in existing_hashes:
@@ -403,9 +410,19 @@ def scan(
             job.author_type = str(
                 row.get("author_type") or discovery.classify_author(job.author_handle, job.author_name)
             )
-            # Job boards / community pages rarely read DMs, so only reply there.
+            # Job boards and aggregator accounts rarely read replies. Keep their
+            # apply link or email, but never send a public reply/DM to them.
             if job.author_type == "job_board":
-                job.outreach_method = "reply"
+                if job.outreach_method == "email" and job.contact_email:
+                    pass
+                elif (job.apply_url or "").strip():
+                    job.outreach_method = "link"
+                else:
+                    job.status = "rejected"
+                    job.decision_reason = "job-board account without an apply link - skipped"
+                    stats["rejected"] += 1
+                    _log(job, job.decision_reason)
+                    continue
 
             spam = spam_guard.assess(job.content, job.author_handle)
             job.spam_score = spam["score"]
@@ -1298,6 +1315,8 @@ def _parse_time(value) -> datetime | None:
 
 STRONG_MATCH_RELEVANCE = 90
 STRONG_MATCH_CONFIDENCE = 0.55
+# Auto-send only fresh posts from a real person. Older/company posts go to review.
+AUTO_SEND_MAX_AGE_HOURS = 6
 
 
 def _decide(
@@ -1330,6 +1349,19 @@ def _decide(
 
     if blockers:
         return "pending_approval", "needs review: " + "; ".join(blockers)
+
+    if job.author_type != "person":
+        return (
+            "pending_approval",
+            "not an individual hirer - review before contacting",
+        )
+
+    posted = _as_utc(job.posted_at)
+    if posted is not None and _now() - posted > timedelta(hours=AUTO_SEND_MAX_AGE_HOURS):
+        return (
+            "pending_approval",
+            f"post is older than {AUTO_SEND_MAX_AGE_HOURS}h - review before contacting",
+        )
 
     if job.apply_method in ("email", "link") and job.contact and job.contact != job.author_handle:
         return "pending_approval", f"application goes to {job.contact}, not a DM"
@@ -1779,6 +1811,20 @@ def _send_one(
     if method != "email" and not x_ready:
         return {"deferred": "X is paused - reconnect the account to send replies and DMs"}
 
+    if method != "email" and (job.author_type or "") == "job_board":
+        if (job.apply_url or "").strip():
+            job.outreach_method = "link"
+            job.status = "new"
+            job.reply_text = ""
+            job.dm_text = ""
+            job.decision_reason = "job-board account - open its apply link instead of replying"
+            _log(job, job.decision_reason)
+            return {}
+        job.status = "skipped"
+        job.decision_reason = "job-board account without an apply link - skipped"
+        _log(job, job.decision_reason)
+        return {}
+
     # External apply link: never send a reply or DM. The human applies through
     # the link (Apply links tab); a queued row may still reach this guard. A post
     # with an email address is an email application, link or not.
@@ -2010,6 +2056,33 @@ def _send_one(
         )
         db.commit()
 
+    if (
+        job.dm_text
+        and (account.dm_status or "ok") in ("unverified", "blocked")
+        and job.dm_status in ("none", "pending")
+    ):
+        job.dm_status = "skipped"
+        job.decision_reason = (
+            "X is blocking cold DMs from this account (sender verification needed)"
+        )
+        _log(job, job.decision_reason)
+        db.add(
+            ActionLog(
+                user_id=job.user_id,
+                job_id=job.id,
+                action="dm",
+                status="skipped",
+                target=f"@{job.author_handle}",
+                content=job.dm_text,
+                detail=job.decision_reason,
+            )
+        )
+        if job.reply_status != "sent":
+            job.status = "skipped"
+            db.commit()
+            return {}
+        db.commit()
+
     # Follow-ups are allowed, but there is a hard cap per person: after
     # DM_MAX_PER_PERSON unanswered DMs (or too soon after the last one) the post
     # gets a public reply only.
@@ -2119,6 +2192,8 @@ def _send_one(
             lowered = message.lower()
             if "session is no longer valid" in lowered or "http 401" in lowered:
                 failed_code = "SESSION_EXPIRED"
+            elif "476" in message or "not verified" in lowered or "sender is not verified" in lowered:
+                failed_code = "DM_UNVERIFIED"
             elif "349" in message or "does not accept messages" in lowered:
                 failed_code = "DM_CLOSED"
             else:
@@ -2137,6 +2212,10 @@ def _send_one(
         if result.get("code") == "SESSION_EXPIRED":
             account.status = "expired"
             db.commit()
+        if result.get("code") == "DM_UNVERIFIED":
+            account.dm_status = "unverified"
+            db.commit()
+            _log(job, "X refused the DM: sender is not verified for message requests")
 
         # X sometimes only allows a DM once you follow. Follow *only* then, and
         # retry the DM once - never follow when the DM already works.
@@ -2277,6 +2356,9 @@ def _apply_write_result(
         status = "skipped"
     elif code == "DM_CLOSED":
         # Their X inbox is closed; no DM can ever land. Never retry.
+        status = "skipped"
+    elif code == "DM_UNVERIFIED":
+        # X requires sender verification for cold message requests.
         status = "skipped"
     elif code == "DUPLICATE":
         status = "skipped"

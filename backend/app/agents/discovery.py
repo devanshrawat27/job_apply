@@ -146,6 +146,74 @@ def classify_author(handle: str, name: str) -> str:
     return "person"
 
 
+_ROLE_LABEL_RE = re.compile(
+    r"(?:role|position|job title|opening)\s*[:\-]\s*([^\n|•]{3,80})", re.I
+)
+_HIRING_ROLE_RE = re.compile(
+    r"\b(?:hiring|looking for|openings? for|join us as)\s+(?:a|an|the)?\s*"
+    r"([A-Za-z][A-Za-z0-9 /+#().'-]{2,70})",
+    re.I,
+)
+_ROLE_NOUN_RE = re.compile(
+    r"\b(developer|engineer|designer|analyst|scientist|manager|consultant|"
+    r"architect|administrator|intern|trainee|sde|programmer|specialist)\b",
+    re.I,
+)
+_COMPANY_IS_HIRING_RE = re.compile(
+    r"([A-Z][\w&.'-]+(?:\s+[A-Z][\w&.'-]+){0,3})\s+is hiring\b"
+)
+_COMPANY_LABEL_RE = re.compile(
+    r"(?:company|organisation|organization)\s*[:\-]\s*([^\n|•]{2,60})", re.I
+)
+_LOCATION_LABEL_RE = re.compile(
+    r"(?:location|place|based in)\s*[:\-]\s*([^\n|•]{2,60})", re.I
+)
+_COMPANY_STOPWORDS = {
+    "we", "our", "the", "this", "that", "remote", "india", "company",
+    "location", "role", "job", "apply", "hiring", "urgent", "immediate",
+}
+
+
+def extract_role(text: str) -> str:
+    body = text or ""
+    for pattern in (_ROLE_LABEL_RE, _HIRING_ROLE_RE):
+        match = pattern.search(body)
+        if not match:
+            continue
+        value = " ".join(match.group(1).split())
+        value = re.split(r"\s+(?:at|in|for)\s+|\s*[|•]\s*", value, maxsplit=1)[0]
+        value = value.strip(" .,:;-–—()")
+        if 3 <= len(value) <= 80 and _ROLE_NOUN_RE.search(value):
+            return value
+    return ""
+
+
+def extract_company(text: str) -> str:
+    body = text or ""
+    for pattern in (_COMPANY_LABEL_RE, _COMPANY_IS_HIRING_RE):
+        match = pattern.search(body)
+        if not match:
+            continue
+        value = " ".join(match.group(1).split()).strip(" .,:;-–—")
+        if not value or value.lower() in _COMPANY_STOPWORDS:
+            continue
+        if 2 <= len(value) <= 60:
+            return value
+    return ""
+
+
+def extract_location(text: str) -> str:
+    body = text or ""
+    match = _LOCATION_LABEL_RE.search(body)
+    if match:
+        value = " ".join(match.group(1).split()).strip(" .,:;-–—")
+        if 2 <= len(value) <= 60:
+            return value
+    if re.search(r"\bremote\b", body, re.I):
+        return "remote"
+    return ""
+
+
 def _join_broken_urls(text: str) -> str:
     """X line-wraps long links: 'https://\\nlinks.example.com/x' -> one URL."""
     joined = re.sub(r"https?://[ \t]*\r?\n[ \t]*", "https://", text or "")
@@ -578,14 +646,17 @@ def _fallback_score(profile: Profile, post: JobPost) -> dict:
     required = required_experience_months(post.content or "")
     email = extract_contact_email(post.content or "")
     url = extract_apply_url(post.content or "")
+    role = extract_role(post.content or "")
+    company = extract_company(post.content or "")
+    location = extract_location(post.content or "")
 
     if matches_avoid(profile, text):
         return {
             "post_id": post.post_id,
             "relevance": 0,
-            "company": "",
-            "role": "",
-            "job_location": "",
+            "company": company,
+            "role": role,
+            "job_location": location,
             "apply_method": detect_apply_method(post.content or "", email=email, url=url),
             "contact": email or post.author_handle,
             "contact_email": email,
@@ -641,9 +712,9 @@ def _fallback_score(profile: Profile, post: JobPost) -> dict:
     return {
         "post_id": post.post_id,
         "relevance": min(100, score),
-        "company": "",
-        "role": "",
-        "job_location": "remote" if "remote" in text else "",
+        "company": company,
+        "role": role,
+        "job_location": location,
         "apply_method": detect_apply_method(post.content or "", email=email, url=url),
         "contact": email or post.author_handle,
         "contact_email": email,

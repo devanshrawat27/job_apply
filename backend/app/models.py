@@ -111,6 +111,8 @@ class XAccount(Base):
     last_reconnect_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     dm_passcode: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(40), default="connected")
+    # ok | unverified (X refuses cold message requests) | blocked
+    dm_status: Mapped[str] = mapped_column(String(30), default="ok")
     last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

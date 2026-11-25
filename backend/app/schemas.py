@@ -122,6 +122,7 @@ class AccountOut(BaseModel):
     has_dm_passcode: bool = False
     can_auto_reconnect: bool = False
     last_checked_at: datetime | None = None
+    dm_status: str = "ok"
 
     @field_serializer("last_checked_at")
     def _serialize_utc(self, value: datetime | None, _info):

@@ -71,6 +71,7 @@ def connect_with_password(
     account.display_name = str(data.get("display_name") or account.display_name or "")
     account.session_ciphertext = encrypt_credentials(creds)
     account.status = "connected"
+    account.dm_status = "ok"
     account.reconnect_attempts = 0
     account.last_reconnect_at = None
     if remember_password:
@@ -226,6 +227,7 @@ def auto_reconnect(db: Session, account: XAccount) -> dict:
 
     account.session_ciphertext = encrypt_credentials(creds)
     account.status = "connected"
+    account.dm_status = "ok"
     account.reconnect_attempts = 0
     account.last_reconnect_at = None
     db.commit()

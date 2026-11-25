@@ -8,12 +8,13 @@ better terms; suggestions enter as candidates and must prove themselves too.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.agents import discovery
+from app.agents.keywords import clean_keyword
 from app.models import LinkedInPostQuery, Profile
 
 MAX_TERMS_PER_SCAN = 3
@@ -141,6 +142,16 @@ def _prune(db: Session, user_id: int | None) -> None:
     rows = list(
         db.scalars(stmt.order_by(LinkedInPostQuery.score.asc(), LinkedInPostQuery.uses.asc()))
     )
+    now = datetime.now(timezone.utc)
+    for row in list(rows):
+        if int(row.uses or 0) > 0 or row.created_at is None:
+            continue
+        created = row.created_at
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if now - created > timedelta(days=2):
+            db.delete(row)
+            rows.remove(row)
     for row in rows[: max(0, len(rows) - MAX_ROWS)]:
         db.delete(row)
     db.commit()
@@ -155,7 +166,7 @@ def add_suggestions(db: Session, user_id: int | None, suggestions: list[str]) ->
     known = {str(keyword).lower() for keyword in db.scalars(stmt).all()}
     added = 0
     for keyword in suggestions:
-        clean = " ".join(str(keyword or "").replace('"', " ").split())[:160]
+        clean = clean_keyword(str(keyword or ""))
         if not clean or clean.lower() in known:
             continue
         db.add(

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.llm import LLMUnavailable, complete_json
 from app.models import Insight, JobPost, LinkedInPostQuery, LinkedInQuery, Profile, SearchQuery
+from app.agents.keywords import clean_keyword
 
 logger = logging.getLogger(__name__)
 
@@ -281,11 +282,8 @@ def _adopt_keywords(db: Session, user_id: int | None, payload: dict) -> None:
 
     for item in payload.get("new_keywords", []):
         keyword = str(item.get("keyword") or "")
-        # ChatGPT sometimes wraps a phrase in quotes ("SDE 1" hiring); X query
-        # building adds its own quotes, so keep the keyword clean. Apostrophes
-        # are real text ("we're hiring"), so only double quotes are removed.
-        keyword = keyword.replace('"', " ")
-        keyword = " ".join(keyword.split()).strip()
+        # Strip prompt labels / boolean syntax that would be searched literally.
+        keyword = clean_keyword(keyword)
         if not keyword or keyword.lower() in known:
             continue
         if not query_lab.keyword_fits_profile(keyword, profile):
@@ -310,7 +308,7 @@ def _adopt_keywords(db: Session, user_id: int | None, payload: dict) -> None:
         db,
         user_id,
         [
-            str(item.get("keyword") or "")
+            clean_keyword(str(item.get("keyword") or ""))
             for item in payload.get("new_linkedin_keywords", [])
             if isinstance(item, dict)
         ],
