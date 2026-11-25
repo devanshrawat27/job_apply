@@ -1,5 +1,7 @@
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
+import { execFileSync } from 'node:child_process'
 import { chromium } from 'playwright'
 
 import { getStealthConfig } from './stealthConfig.js'
@@ -40,11 +42,8 @@ export function markConnected() {
   }
 }
 
-export async function launchChatgpt({ headless } = {}) {
+async function launchFromProfile(profileDir, headless) {
   const config = getStealthConfig()
-  const profileDir = getChatgptProfileDir()
-  fs.mkdirSync(profileDir, { recursive: true })
-
   const context = await chromium.launchPersistentContext(profileDir, {
     headless: headless ?? config.headless,
     args: LAUNCH_ARGS,
@@ -64,6 +63,93 @@ export async function launchChatgpt({ headless } = {}) {
 
   const page = context.pages()[0] || (await context.newPage())
   return { context, page }
+}
+
+function releaseProfileLock(profileDir) {
+  if (process.platform !== "win32") return
+  try {
+    const needle = path.basename(profileDir)
+    const listScript =
+      `Get-CimInstance Win32_Process | ` +
+      `Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*${needle}*' } | ` +
+      `Select-Object -ExpandProperty ProcessId`
+    const output = execFileSync("powershell.exe", ["-NoProfile", "-Command", listScript], {
+      timeout: 15000,
+      encoding: "utf8",
+    })
+    for (const line of String(output || "").split(/\s+/)) {
+      if (!/^\d+$/.test(line)) continue
+      try {
+        execFileSync("taskkill", ["/F", "/T", "/PID", line], { stdio: "ignore", timeout: 8000 })
+      } catch {
+        // already gone
+      }
+    }
+    // Chrome leaves a stale SingletonLock behind when it is force-closed.
+    // Launching with that file makes Chromium think another process owns the
+    // profile ("Opening in existing browser session") and the page closes.
+    for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket"]) {
+      try {
+        fs.rmSync(path.join(profileDir, name), { force: true })
+      } catch {
+        // best effort
+      }
+    }
+  } catch {
+    // best effort
+  }
+}
+
+export async function launchChatgpt({ headless, copyOnLock = true } = {}) {
+  const profileDir = getChatgptProfileDir()
+  fs.mkdirSync(profileDir, { recursive: true })
+
+  // A timed-out ask can leave its Chrome process behind. That locks the profile
+  // and makes every later redraft fail with "element is not visible" or
+  // "browser has been closed". Clear our own profile before every launch.
+  releaseProfileLock(profileDir)
+  await new Promise((resolve) => setTimeout(resolve, 600))
+
+  try {
+    return await launchFromProfile(profileDir, headless)
+  } catch (error) {
+    const message = String(error?.message || '')
+    // Chrome only allows one process per user-data-dir.
+    if (!copyOnLock || !/existing browser session|Target page, context or browser has been closed/i.test(message)) {
+      throw error
+    }
+
+    releaseProfileLock(profileDir)
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    try {
+      return await launchFromProfile(profileDir, headless)
+    } catch {
+      // Still locked: copy the profile as a last resort.
+      try {
+        const tempDir = path.join(os.tmpdir(), `jobpilot-chatgpt-${process.pid}-${Date.now()}`)
+        fs.cpSync(profileDir, tempDir, { recursive: true })
+        const result = await launchFromProfile(tempDir, headless)
+        result.context.__jobpilotTempProfile = tempDir
+        return result
+      } catch {
+        throw new Error(
+          "ChatGPT is open in another window. Close it and press Redraft again.",
+        )
+      }
+    }
+  }
+}
+
+export async function cleanupChatgpt(context) {
+  const tempDir = context?.__jobpilotTempProfile
+  await context?.close().catch(() => {})
+  if (tempDir) {
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true })
+    } catch {
+      // best effort
+    }
+  }
 }
 
 export const CHATGPT_COMPOSER = '#prompt-textarea, div[contenteditable="true"], textarea'

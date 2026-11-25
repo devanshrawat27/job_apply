@@ -179,7 +179,9 @@ def _ask(
         "thread_title": thread_title,
         "project_url": project,
     }
-    return executor.run_script("chatgpt_ask", args, user_id=user_id, timeout=timeout)
+    return executor.run_script(
+        "chatgpt_ask", args, user_id=user_id, timeout=timeout, lock_timeout=5
+    )
 
 
 def ask_json(
@@ -225,9 +227,15 @@ def ask_json(
         timeout=timeout,
     )
 
-    # The conversation was deleted in ChatGPT (or the link is stale): open a new
-    # one instead of failing the task.
-    if not result.get("success") and thread_url and result.get("code") == "THREAD_MISSING":
+    # The conversation was deleted in ChatGPT, or it is stuck/too long and
+    # returns an empty answer. Open a fresh one instead of failing the task.
+    if not result.get("success") and thread_url and result.get("code") in (
+        "THREAD_MISSING",
+        "EMPTY_ANSWER",
+        "TIMEOUT",
+        "BAD_JSON",
+        "NO_COMPOSER",
+    ):
         result = _ask(
             system,
             prompt,

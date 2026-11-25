@@ -330,8 +330,10 @@ def compose(
     budget_s: float | None = None,
     follow_up: int = 0,
     previous: str | None = None,
+    attempts: int = 2,
     providers: list[dict] | None = None,
     browser_fallback: bool = False,
+    browser_first: bool = False,
     browser_user_id: int | None = None,
 ) -> dict:
     if not _llm_ready():
@@ -367,40 +369,56 @@ def compose(
     )
 
     result: dict | None = None
-    for attempt in range(2):
+    for attempt in range(max(1, int(attempts))):
         if attempt == 0:
             user_prompt = prompt
         elif result and result.get("mentions_project"):
             user_prompt = prompt + PROJECT_NOTE
         else:
             user_prompt = prompt + RETRY_NOTE
-        try:
-            data = complete_json(
-                SYSTEM,
-                user_prompt,
-                temperature=0.6 if attempt == 0 else 0.75,
-                max_tokens=650,
-                budget_s=budget_s,
-                providers=providers,
-            )
-        except LLMUnavailable as exc:
-            # No API key/health? Use the logged-in ChatGPT browser instead of
-            # falling back to a template. The window is visible while it writes.
-            data = None
-            if browser_fallback:
-                try:
-                    from app.services import browser_chatgpt
+        data = None
+        if browser_first and browser_fallback:
+            try:
+                from app.services import browser_chatgpt
 
-                    logger.info("composer: API LLM unavailable (%s), using browser ChatGPT", exc)
-                    data = browser_chatgpt.ask_json(
-                        SYSTEM, user_prompt, user_id=browser_user_id,
-                        purpose="draft", timeout=150,
-                    )
-                except Exception as browser_exc:  # noqa: BLE001
-                    logger.warning("composer browser ChatGPT failed: %s", browser_exc)
-            if data is None:
-                logger.warning("composer fell back to template: %s", exc)
-                break
+                data = browser_chatgpt.ask_json(
+                    SYSTEM,
+                    user_prompt,
+                    user_id=browser_user_id,
+                    purpose="draft",
+                    timeout=int(max(45, min(90, budget_s or 90))),
+                )
+            except Exception as browser_exc:  # noqa: BLE001
+                logger.warning("composer browser-first failed: %s", browser_exc)
+
+        if data is None:
+            try:
+                data = complete_json(
+                    SYSTEM,
+                    user_prompt,
+                    temperature=0.6 if attempt == 0 else 0.75,
+                    max_tokens=650,
+                    budget_s=budget_s,
+                    providers=providers,
+                )
+            except LLMUnavailable as exc:
+                # No API key/health? Use the logged-in ChatGPT browser instead of
+                # falling back to a template. The window is visible while it writes.
+                if browser_fallback and not browser_first:
+                    try:
+                        from app.services import browser_chatgpt
+
+                        logger.info("composer: API LLM unavailable (%s), using browser ChatGPT", exc)
+                        data = browser_chatgpt.ask_json(
+                            SYSTEM, user_prompt, user_id=browser_user_id,
+                            purpose="draft",
+                            timeout=int(max(45, min(120, budget_s or 120))),
+                        )
+                    except Exception as browser_exc:  # noqa: BLE001
+                        logger.warning("composer browser ChatGPT failed: %s", browser_exc)
+                if data is None:
+                    logger.warning("composer fell back to template: %s", exc)
+                    break
         if not isinstance(data, dict):
             break
 

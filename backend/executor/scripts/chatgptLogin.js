@@ -15,7 +15,7 @@ const watchdog = setTimeout(() => {
 }, TIMEOUT_MS + 15000)
 
 async function main() {
-  const { context, page } = await launchChatgpt({ headless: false })
+  const { context, page } = await launchChatgpt({ headless: false, copyOnLock: false })
 
   try {
     await page.goto('https://chatgpt.com/', { waitUntil: 'domcontentloaded', timeout: 60000 })

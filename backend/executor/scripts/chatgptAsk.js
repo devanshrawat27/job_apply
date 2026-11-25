@@ -14,6 +14,7 @@
 
 import {
   CHATGPT_COMPOSER,
+  cleanupChatgpt,
   isLoggedIn,
   launchChatgpt,
   markConnected,
@@ -100,6 +101,8 @@ async function waitForAnswer(page, timeoutMs, priorCount, priorText) {
         .count()
         .catch(() => 0)) > 0
 
+    // Never accept an old answer. A new reply means the assistant message count
+    // went up; the transcript may still contain yesterday's answer.
     let current = ''
     if (count > priorCount) {
       current = (
@@ -109,9 +112,6 @@ async function waitForAnswer(page, timeoutMs, priorCount, priorText) {
           .innerText()
           .catch(() => '')
       ).trim()
-    } else {
-      const text = cleanAnswer(await transcript(page))
-      if (text && text !== priorText) current = text
     }
 
     if (current) started = true
@@ -142,10 +142,22 @@ async function recoverFullContext(page) {
   return false
 }
 
+async function visibleComposer(page) {
+  const locator = page.locator(CHATGPT_COMPOSER)
+  const count = await locator.count().catch(() => 0)
+  for (let index = 0; index < count; index += 1) {
+    const item = locator.nth(index)
+    if (await item.isVisible().catch(() => false)) return item
+  }
+  return null
+}
+
 async function openTarget(page) {
   const target = THREAD_URL || PROJECT_URL || 'https://chatgpt.com/'
+  await page.bringToFront().catch(() => {})
   await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 60000 })
   await page.waitForTimeout(4500)
+  await page.bringToFront().catch(() => {})
 
   if (!(await isLoggedIn(page))) {
     reportFail(
@@ -163,18 +175,21 @@ async function openTarget(page) {
     await recoverFullContext(page)
   }
 
-  if ((await page.locator(CHATGPT_COMPOSER).count().catch(() => 0)) > 0) return true
-
-  // A project landing page sometimes shows its own "New chat" action first.
-  if (PROJECT_URL) {
-    const newChat = page
-      .locator('button:has-text("New chat"), a:has-text("New chat")')
-      .first()
-    if ((await newChat.count().catch(() => 0)) > 0) {
-      await newChat.click().catch(() => {})
-      await page.waitForTimeout(2500)
-      if ((await page.locator(CHATGPT_COMPOSER).count().catch(() => 0)) > 0) return true
+  // The page often has a hidden copy of the composer (template/preload). A
+  // .count() check is not enough: the first copy can be invisible, and clicking
+  // it times out. Wait for a visible one.
+  await page.keyboard.press('Escape').catch(() => {})
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    if (await visibleComposer(page)) return true
+    if (attempt === 0) {
+      const newChat = page
+        .locator('button:has-text("New chat"), a:has-text("New chat")')
+        .first()
+      if (await newChat.isVisible().catch(() => false)) {
+        await newChat.click().catch(() => {})
+      }
     }
+    await page.waitForTimeout(2500)
   }
   return false
 }
@@ -204,7 +219,11 @@ async function main() {
     const priorCount = await assistantCount(page)
     const priorText = cleanAnswer(await transcript(page))
 
-    const composer = page.locator(CHATGPT_COMPOSER).first()
+    const composer = await visibleComposer(page)
+    if (!composer) {
+      reportFail('NO_COMPOSER', 'ChatGPT did not show a usable message box')
+      return
+    }
     await composer.click({ timeout: 15000 })
 
     // A brand-new conversation gets a readable title so the human can find it
@@ -217,16 +236,23 @@ async function main() {
     })
     await page.waitForTimeout(600)
 
-    await page.keyboard.press('Enter')
-    await page.waitForTimeout(2500)
-
-    // If Enter only added a newline, click the send button instead.
-    if ((await composer.innerText().catch(() => '')).trim()) {
-      const send = page.locator('[data-testid="send-button"]').first()
-      if (await send.count()) {
+    let leftover = ''
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await page.keyboard.press('Enter')
+      await page.waitForTimeout(1500)
+      leftover = (await composer.innerText().catch(() => '')).trim()
+      if (!leftover) break
+      const send = page.locator('[data-testid="send-button"]:visible').first()
+      if ((await send.count().catch(() => 0)) > 0) {
         await send.click().catch(() => {})
-        await page.waitForTimeout(2000)
       }
+      await page.waitForTimeout(1200)
+      leftover = (await composer.innerText().catch(() => '')).trim()
+      if (!leftover) break
+    }
+    if (leftover) {
+      reportFail('SEND_FAILED', 'ChatGPT did not accept the message (it stayed in the box)')
+      return
     }
 
     // Keep the window visible while ChatGPT answers: Chromium throttles a
@@ -249,7 +275,7 @@ async function main() {
     })
   } finally {
     clearTimeout(watchdog)
-    await context.close().catch(() => {})
+    await cleanupChatgpt(context)
   }
 }
 

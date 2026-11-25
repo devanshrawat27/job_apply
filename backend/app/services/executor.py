@@ -19,6 +19,7 @@ import shutil
 import socket
 import subprocess
 import threading
+from contextlib import contextmanager
 import time
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,19 @@ TIMEOUTS: dict[str, int] = {
 }
 
 SCRIPT_LOCK = threading.Lock()
+# ChatGPT has its own browser/profile. It can run beside X actions, but two
+# ChatGPT asks still must not share the same profile.
+CHATGPT_LOCK = threading.Lock()
+
+
+@contextmanager
+def _script_lock(lock: threading.Lock, timeout: float | None):
+    acquired = lock.acquire(timeout=timeout) if timeout is not None else lock.acquire()
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            lock.release()
 
 # One warm browser for every action. X's encrypted chat only renders in a page
 # that is already logged in and hydrated, so we keep a persistent host alive
@@ -178,6 +192,7 @@ def run_script(
     dm_passcode: str | None = None,
     user_id: int | None = None,
     timeout: int | None = None,
+    lock_timeout: float | None = None,
 ) -> dict[str, Any]:
     """Run one executor script and return its parsed RESULT_JSON payload."""
     if name not in SCRIPTS:
@@ -218,7 +233,16 @@ def run_script(
 
     limit = timeout or TIMEOUTS.get(name, settings.automation_timeout_s)
 
-    with SCRIPT_LOCK:
+    with _script_lock(
+        CHATGPT_LOCK if name.startswith("chatgpt") else SCRIPT_LOCK, lock_timeout
+    ) as acquired:
+        if not acquired:
+            return {
+                "success": False,
+                "code": "BUSY",
+                "error": "another ChatGPT task is running",
+                "data": {"logs": []},
+            }
         try:
             proc = subprocess.Popen(
                 ["node", str(script), "--agent-mode"],

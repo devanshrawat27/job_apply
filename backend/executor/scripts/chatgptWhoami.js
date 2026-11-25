@@ -3,7 +3,7 @@
  * Uses ChatGPT's own session endpoint, so nothing is sent or changed.
  */
 
-import { launchChatgpt } from '../utils/chatgptBrowser.js'
+import { cleanupChatgpt, launchChatgpt } from '../utils/chatgptBrowser.js'
 import { minimizeBrowserWindow } from '../utils/minimize.js'
 import { reportFail, reportOk } from '../utils/report.js'
 
@@ -45,7 +45,7 @@ async function main() {
     reportOk(session)
   } finally {
     clearTimeout(watchdog)
-    await context.close().catch(() => {})
+    await cleanupChatgpt(context)
   }
 }
 

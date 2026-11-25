@@ -4,6 +4,7 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from app.deps import CurrentUser
 from app.llm import LLMUnavailable
 from app.models import ActionLog, DraftExample, JobPost, Resume
 from app.schemas import ApproveIn, JobOut
-from app.services import browser_chatgpt, email_accounts, limits, pipeline, tasks
+from app.services import browser_chatgpt, chat_threads, email_accounts, limits, pipeline, tasks
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -340,6 +341,8 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
 
     settings_row = pipeline.get_settings_row(db, uid)
     providers = pipeline.llm_providers(db, uid)
+    # Redraft is slow if the browser profile is stuck. It tries the browser
+    # first (usually 20-40s) and the API as a fallback, with a hard budget.
     use_browser = bool(settings_row.chatgpt_browser_enabled) and browser_chatgpt.connected(uid)
 
     examples_stmt = select(DraftExample).order_by(DraftExample.id.desc()).limit(3)
@@ -347,26 +350,43 @@ def redraft_job(job_id: int, user: CurrentUser = None, db: Session = Depends(get
         examples_stmt = examples_stmt.where(DraftExample.user_id == uid)
     examples = list(db.scalars(examples_stmt).all())
 
-    try:
-        if job.outreach_method == "email":
-            draft = email_writer.write(
-                db, job, profile, uid, providers=providers, browser=use_browser
-            )
-        else:
-            draft = composer.compose(
-                profile,
-                job,
-                examples,
-                budget_s=120,
-                previous=job.dm_text or job.reply_text or "",
-                providers=providers,
-                browser_fallback=use_browser,
-                browser_user_id=uid,
-            )
-    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
-        raise HTTPException(status_code=502, detail=str(exc)[:300])
+    # A manual redraft is one self-contained message: the previous draft is in
+    # the prompt. Do not resume the long-lived draft thread here - it can be
+    # context-full or stuck on an older task, which makes redraft slow and can
+    # return an unrelated answer.
+    chat_threads.clear_url(db, uid, "draft")
 
-    if draft.get("template"):
+    draft = None
+    for attempt in range(1):
+        try:
+            if job.outreach_method == "email":
+                draft = email_writer.write(
+                    db, job, profile, uid, providers=providers, browser=use_browser
+                )
+            else:
+                draft = composer.compose(
+                    profile,
+                    job,
+                    examples,
+                    budget_s=60,
+                    previous=job.dm_text or job.reply_text or "",
+                    attempts=1,
+                    providers=providers,
+                    browser_fallback=use_browser,
+                    browser_first=use_browser,
+                    browser_user_id=uid,
+                )
+        except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+            if attempt == 0:
+                time.sleep(1.5)
+                continue
+            raise HTTPException(status_code=502, detail=str(exc)[:300])
+        if isinstance(draft, dict) and not draft.get("template"):
+            break
+        if attempt == 0:
+            time.sleep(1.5)
+
+    if not isinstance(draft, dict) or draft.get("template"):
         raise HTTPException(
             status_code=503,
             detail="The AI is unavailable right now. Your old draft was kept - try redraft again in a minute.",

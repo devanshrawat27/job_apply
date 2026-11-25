@@ -10,6 +10,7 @@
 
 import {
   isLoggedIn,
+  cleanupChatgpt,
   launchChatgpt,
   markConnected,
 } from '../utils/chatgptBrowser.js'
@@ -164,7 +165,7 @@ async function main() {
     reportOk({ project_url: created.url, created: true, name: NAME })
   } finally {
     clearTimeout(watchdog)
-    await context.close().catch(() => {})
+    await cleanupChatgpt(context)
   }
 }
 
