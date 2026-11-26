@@ -373,6 +373,36 @@ def test_stale_undecided_posts_are_closed(db):
     assert fresh.status == "new"
 
 
+def test_retry_dms_clears_the_block_without_signing_in(db):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    account = db.scalar(select(XAccount))
+    account.dm_status = "unverified"
+    job = JobPost(
+        post_id="blocked-1",
+        status="sent",
+        dm_status="blocked",
+        posted_at=datetime.now(timezone.utc) - timedelta(hours=1),
+        content="We are hiring a React developer.",
+        reply_status="sent",
+    )
+    db.add(job)
+    db.commit()
+
+    client = TestClient(app)
+    res = client.post(f"/api/accounts/{account.id}/dm-status/retry")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["account"]["dm_status"] == "ok"
+    assert body["requeued"] == 1
+
+    db.refresh(job)
+    assert job.dm_status == "none"
+    assert job.status == "queued"
+
+
 def test_set_and_clear_dm_passcode(db):
     from fastapi.testclient import TestClient
 

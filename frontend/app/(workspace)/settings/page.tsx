@@ -138,6 +138,7 @@ export default function SettingsPage() {
   const [llmReady, setLlmReady] = useState<boolean | null>(null)
   const [passcodeDraft, setPasscodeDraft] = useState('')
   const [savingPasscode, setSavingPasscode] = useState(false)
+  const [retryingDms, setRetryingDms] = useState(false)
   const [llmKeys, setLlmKeys] = useState<LLMKey[]>([])
   const [llmForm, setLlmForm] = useState({
     label: 'ChatGPT',
@@ -249,6 +250,26 @@ export default function SettingsPage() {
       toast.error((err as Error).message)
     } finally {
       setSavingPasscode(false)
+    }
+  }
+
+  async function retryDms() {
+    if (!account) return
+    setRetryingDms(true)
+    try {
+      const result = await api.retryDms(account.id)
+      await reload()
+      toast.success(
+        result.requeued > 0
+          ? `DM block cleared — ${result.requeued} first message${
+              result.requeued === 1 ? '' : 's'
+            } queued`
+          : 'DM block cleared — the next first message will be attempted',
+      )
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setRetryingDms(false)
     }
   }
 
@@ -1081,10 +1102,25 @@ export default function SettingsPage() {
                   {account.has_dm_passcode ? ' · DM passcode saved' : ''}
                 </p>
                 {account.dm_status === 'unverified' ? (
-                  <p className="mt-1 text-[11px] text-amber-600 dark:text-amber-400">
-                    X is blocking cold DMs from this account (sender verification needed). Replies
-                    and email applications still work.
-                  </p>
+                  <div className="mt-2 flex flex-col items-start gap-2">
+                    <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                      X is blocking cold DMs from this account (sender verification needed). Replies,
+                      apply links and email applications still work.
+                    </p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={retryingDms}
+                      onClick={() => void retryDms()}
+                    >
+                      {retryingDms ? <Loader2Icon className="animate-spin" /> : null}
+                      I verified on X — retry DMs
+                    </Button>
+                    <span className="text-[10px] text-muted-foreground">
+                      Only use this after adding a phone number to X. It clears the block without
+                      signing in again.
+                    </span>
+                  </div>
                 ) : null}
               </div>
               <div className="flex items-center gap-2">

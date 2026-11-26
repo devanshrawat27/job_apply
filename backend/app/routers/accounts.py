@@ -6,7 +6,7 @@ from app.database import get_db
 from app.deps import CurrentUser
 from app.models import XAccount
 from app.schemas import AccountOut, ConnectIn, DmPasscodeIn
-from app.services import accounts
+from app.services import accounts, pipeline
 
 router = APIRouter(prefix="/accounts", tags=["accounts"])
 
@@ -59,6 +59,28 @@ def connect(
     if account is None:  # pragma: no cover - defensive
         raise HTTPException(status_code=500, detail="account was not stored")
     return _to_out(account)
+
+
+@router.post("/{account_id}/dm-status/retry")
+def retry_dms(
+    account_id: int,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Clear the DM block after the human verified the sender on X.
+
+    X requires a verified sender only for cold message requests. A reconnect
+    is not needed when the saved session is still alive; this resets the flag
+    and puts held first messages back in the queue.
+    """
+    uid = _uid(user)
+    account = db.get(XAccount, account_id)
+    if account is None or (uid is not None and account.user_id != uid):
+        raise HTTPException(status_code=404, detail="account not found")
+    account.dm_status = "ok"
+    db.commit()
+    requeued = pipeline.requeue_blocked_dms(db, account.user_id)
+    return {"ok": True, "requeued": requeued, "account": _to_out(account)}
 
 
 @router.put("/{account_id}/dm-passcode", response_model=AccountOut)

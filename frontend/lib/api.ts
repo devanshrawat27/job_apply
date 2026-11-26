@@ -194,6 +194,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ passcode }),
     }),
+  retryDms: (id: number) =>
+    request<{ ok: boolean; requeued: number; account: Account }>(
+      `/accounts/${id}/dm-status/retry`,
+      { method: 'POST' },
+    ),
 
   getSettings: () => request<AgentSettings>('/settings'),
   syncGithub: () =>
