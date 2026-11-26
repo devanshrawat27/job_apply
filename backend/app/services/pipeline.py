@@ -2255,36 +2255,6 @@ def _send_one(
         )
         db.commit()
 
-    if (
-        job.dm_text
-        and (account.dm_status or "ok") in ("unverified", "blocked")
-        and job.dm_status in ("none", "pending")
-    ):
-        # This is the sender account's problem, not this person's: keep the
-        # DM recoverable so it can go out once X lets the account message.
-        job.dm_status = "blocked"
-        job.next_retry_at = _now() + timedelta(hours=1)
-        job.decision_reason = (
-            "X is blocking cold DMs from this account (sender verification needed)"
-        )
-        _log(job, job.decision_reason)
-        db.add(
-            ActionLog(
-                user_id=job.user_id,
-                job_id=job.id,
-                action="dm",
-                status="skipped",
-                target=f"@{job.author_handle}",
-                content=job.dm_text,
-                detail=job.decision_reason,
-            )
-        )
-        if job.reply_status != "sent":
-            job.status = "pending_approval"
-            db.commit()
-            return {}
-        db.commit()
-
     # Follow-ups are allowed, but there is a hard cap per person: after
     # DM_MAX_PER_PERSON unanswered DMs (or too soon after the last one) the post
     # gets a public reply only.
@@ -2374,33 +2344,46 @@ def _send_one(
 
         # Try X's own DM endpoint first: it needs no chat passcode and does not
         # depend on the encrypted chat window rendering. The browser script is
-        # the fallback when the endpoint cannot be used.
+        # the fallback when the endpoint cannot be used, and the primary route
+        # once X has flagged the account: the legacy endpoint rejects those
+        # first messages (476) while the chat window still delivers them.
+        use_browser = (account.dm_status or "ok") in ("unverified", "blocked")
         result = None
-        try:
-            sent = x_dm_api.send_dm(job.author_handle, job.dm_text, creds)
-            result = {"success": True, "code": "OK", "data": sent}
-            _log(job, "dm: sent through X's DM endpoint")
-        except x_dm_api.DMUnavailable as exc:
-            _log(job, f"dm endpoint unavailable ({exc}) - using the chat window")
-        except x_dm_api.DMUnknown as exc:
-            found = x_dm_api.find_sent_message(creds, job.author_handle, job.dm_text)
-            if found is not None:
-                result = {"success": True, "code": "OK", "data": found}
-                _log(job, "dm: confirmed in the inbox after an unverified send")
-            else:
-                result = {"success": False, "code": "UNKNOWN", "error": str(exc)}
-        except x_dm_api.DMError as exc:
-            message = str(exc)
-            lowered = message.lower()
-            if "session is no longer valid" in lowered or "http 401" in lowered:
-                failed_code = "SESSION_EXPIRED"
-            elif "476" in message or "not verified" in lowered or "sender is not verified" in lowered:
-                failed_code = "DM_UNVERIFIED"
-            elif "349" in message or "does not accept messages" in lowered:
-                failed_code = "DM_CLOSED"
-            else:
-                failed_code = "failed"
-            result = {"success": False, "code": failed_code, "error": message}
+        if use_browser:
+            _log(job, "sender is flagged by the DM endpoint - using the X chat window")
+        else:
+            try:
+                sent = x_dm_api.send_dm(job.author_handle, job.dm_text, creds)
+                result = {"success": True, "code": "OK", "data": sent}
+                _log(job, "dm: sent through X's DM endpoint")
+            except x_dm_api.DMUnavailable as exc:
+                _log(job, f"dm endpoint unavailable ({exc}) - using the chat window")
+            except x_dm_api.DMUnknown as exc:
+                found = x_dm_api.find_sent_message(creds, job.author_handle, job.dm_text)
+                if found is not None:
+                    result = {"success": True, "code": "OK", "data": found}
+                    _log(job, "dm: confirmed in the inbox after an unverified send")
+                else:
+                    result = {"success": False, "code": "UNKNOWN", "error": str(exc)}
+            except x_dm_api.DMError as exc:
+                message = str(exc)
+                lowered = message.lower()
+                if "session is no longer valid" in lowered or "http 401" in lowered:
+                    failed_code = "SESSION_EXPIRED"
+                elif "476" in message or "not verified" in lowered or "sender is not verified" in lowered:
+                    failed_code = "DM_UNVERIFIED"
+                elif "349" in message or "does not accept messages" in lowered:
+                    failed_code = "DM_CLOSED"
+                else:
+                    failed_code = "failed"
+                if failed_code == "DM_UNVERIFIED":
+                    _log(
+                        job,
+                        "dm endpoint needs sender verification - trying the X chat window",
+                    )
+                    result = None
+                else:
+                    result = {"success": False, "code": failed_code, "error": message}
 
         if result is None:
             result = executor.run_script(
@@ -2418,6 +2401,12 @@ def _send_one(
             account.dm_status = "unverified"
             db.commit()
             _log(job, "X refused the DM: sender is not verified for message requests")
+        elif use_browser and result.get("success"):
+            # The chat window can still deliver first messages while the
+            # legacy endpoint is flagging the account.
+            account.dm_status = "ok"
+            db.commit()
+            _log(job, "dm: sent through the X chat window")
 
         # X sometimes only allows a DM once you follow. Follow *only* then, and
         # retry the DM once - never follow when the DM already works.

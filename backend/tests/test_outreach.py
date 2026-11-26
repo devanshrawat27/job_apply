@@ -258,8 +258,8 @@ def test_passcode_required_is_a_retryable_failure(db, monkeypatch):
     assert "passcode" in (job.last_error or "").lower()
 
 
-def test_unverified_account_holds_dms_and_requeues_after_verification(db, monkeypatch):
-    """X sender verification must not throw the lead away."""
+def test_unverified_account_sends_through_the_chat_window(db, monkeypatch):
+    """X's legacy endpoint flags the account, but the chat window still works."""
     _prepare(db, monkeypatch)
     account = db.scalar(select(XAccount))
     account.dm_status = "unverified"
@@ -276,24 +276,51 @@ def test_unverified_account_holds_dms_and_requeues_after_verification(db, monkey
 
     job = db.scalar(select(JobPost))
     db.refresh(job)
-    assert calls == ["reply"]  # the DM is held, not attempted
+    assert calls == ["reply", "dm"]  # the browser DM route was used
+    assert job.dm_status == "sent"
+    assert job.status == "sent"
+
+    account = db.scalar(select(XAccount))
+    db.refresh(account)
+    assert account.dm_status == "ok"
+
+
+def test_chat_window_476_still_holds_the_dm(db, monkeypatch):
+    """If the window is blocked too, keep the lead for after verification."""
+    _prepare(db, monkeypatch)
+    account = db.scalar(select(XAccount))
+    account.dm_status = "unverified"
+    db.commit()
+
+    def fake_write(name, args=None, **kwargs):
+        if name == "dm":
+            return {
+                "success": False,
+                "code": "DM_UNVERIFIED",
+                "error": "sender is not verified for message requests",
+            }
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake_write)
+    pipeline.send_batch(db)
+
+    job = db.scalar(select(JobPost))
+    db.refresh(job)
     assert job.dm_status == "blocked"
     assert job.status == "sent"
     assert job.next_retry_at is not None
 
-    # The human verifies X and reconnects; the held DM gets one more chance.
     account = db.scalar(select(XAccount))
+    db.refresh(account)
+    assert account.dm_status == "unverified"
+
+    # After the human verifies, the held DM goes back to the queue.
     account.dm_status = "ok"
     db.commit()
     assert pipeline.requeue_blocked_dms(db) == 1
     db.refresh(job)
     assert job.status == "queued"
     assert job.dm_status == "none"
-
-    pipeline.send_batch(db)
-    db.refresh(job)
-    assert job.dm_status == "sent"
-    assert calls == ["reply", "dm"]
 
 
 def test_sender_verification_error_keeps_the_dm_recoverable(db, monkeypatch):
