@@ -2277,7 +2277,7 @@ def _send_one(
         and job.author_handle.strip().lstrip("@").lower() in closed_handles
     ):
         job.dm_status = "skipped"
-        _log(job, f"@{job.author_handle} has a closed inbox - no DM sent")
+        _log(job, f"@{job.author_handle} does not accept DMs - no DM sent")
         db.add(
             ActionLog(
                 user_id=job.user_id,
@@ -2286,7 +2286,7 @@ def _send_one(
                 status="skipped",
                 target=f"@{job.author_handle}",
                 content=job.dm_text,
-                detail="X says this inbox is closed - removed from the DM queue",
+                detail="not open to DMs (closed inbox or verified-only) - removed from the DM queue",
             )
         )
         db.commit()
@@ -2469,6 +2469,19 @@ def _send_one(
                 _log(job, f"@{job.author_handle} has a closed inbox - no future DMs")
                 db.commit()
 
+        # Verified-only: X will not send a message request from this account.
+        # Remember the handle so no future post from them is attempted either.
+        if code == "DM_VERIFICATION_REQUIRED":
+            handle = job.author_handle.strip().lstrip("@").lower()
+            handles = [str(item).strip().lstrip("@").lower() for item in (settings_row.closed_inbox_handles or [])]
+            if handle and handle not in handles:
+                settings_row.closed_inbox_handles = [*handles, handle]
+            job.decision_reason = (
+                f"@{job.author_handle} only accepts DMs from verified accounts - no DM sent"
+            )
+            _log(job, job.decision_reason)
+            db.commit()
+
         # "Chat did not finish loading" is a transient browser problem: nothing
         # was sent, so retry it later instead of losing the lead.
         if (
@@ -2557,6 +2570,9 @@ def _apply_write_result(
         status = "skipped"
     elif code == "DM_CLOSED":
         # Their X inbox is closed; no DM can ever land. Never retry.
+        status = "skipped"
+    elif code == "DM_VERIFICATION_REQUIRED":
+        # They only accept message requests from verified accounts. Never retry.
         status = "skipped"
     elif code == "DM_UNVERIFIED":
         # X requires sender verification for cold message requests.

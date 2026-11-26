@@ -88,6 +88,19 @@ async function hasClosedInbox(page) {
   return /closed inbox|has a closed inbox/i.test(body)
 }
 
+async function hasVerificationGate(page) {
+  // X shows "Get verified to message @user - Only verified users can send
+  // Direct Message requests..." for people who only accept DMs from verified
+  // accounts (or people they follow). No message can be sent from here.
+  const body = await page.locator('body').innerText().catch(() => '')
+  if (/get verified to message|only verified users can send/i.test(body)) return true
+  return page
+    .locator('text=/Get verified to message|Only verified users can send/i')
+    .first()
+    .isVisible({ timeout: 1500 })
+    .catch(() => false)
+}
+
 async function confirmSent(page, beforeCount, attempts = 20) {
   for (let i = 0; i < attempts; i++) {
     await page.waitForTimeout(500)
@@ -221,6 +234,14 @@ async function send() {
     await handlePasskey(page)
     await page.waitForTimeout(1500)
 
+    if (await hasVerificationGate(page)) {
+      reportFail(
+        'DM_VERIFICATION_REQUIRED',
+        `X requires a verified account to message @${USERNAME} - no message request can be sent`,
+      )
+      return
+    }
+
     if (await hasClosedInbox(page)) {
       reportFail(
         'DM_CLOSED',
@@ -276,6 +297,13 @@ async function send() {
     }
 
     if (ready !== 'ready') {
+      if (await hasVerificationGate(page)) {
+        reportFail(
+          'DM_VERIFICATION_REQUIRED',
+          `X requires a verified account to message @${USERNAME} - no message request can be sent`,
+        )
+        return
+      }
       if (await hasClosedInbox(page)) {
         reportFail(
           'DM_CLOSED',

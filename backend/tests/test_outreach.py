@@ -323,6 +323,32 @@ def test_chat_window_476_still_holds_the_dm(db, monkeypatch):
     assert job.dm_status == "none"
 
 
+def test_verified_only_user_is_never_dmed_again(db, monkeypatch):
+    _prepare(db, monkeypatch)
+
+    def fake_write(name, args=None, **kwargs):
+        if name == "dm":
+            return {
+                "success": False,
+                "code": "DM_VERIFICATION_REQUIRED",
+                "error": "Get verified to message @acmefounder",
+            }
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake_write)
+    pipeline.send_batch(db)
+
+    job = db.scalar(select(JobPost))
+    db.refresh(job)
+    assert job.dm_status == "skipped"
+    assert "verified accounts" in job.decision_reason
+    assert job.next_retry_at is None
+
+    settings_row = pipeline.get_settings_row(db)
+    remembered = [str(h).strip().lstrip("@").lower() for h in (settings_row.closed_inbox_handles or [])]
+    assert "acmefounder" in remembered
+
+
 def test_sender_verification_error_keeps_the_dm_recoverable(db, monkeypatch):
     _prepare(db, monkeypatch)
 
