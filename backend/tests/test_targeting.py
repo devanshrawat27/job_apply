@@ -263,21 +263,21 @@ def test_one_dm_per_person_history_is_counted(db):
 
     count, _last = pipeline.dm_stats(db, second)
     assert count == 1
-    allowed, follow_up, _reason = pipeline.dm_followup_allowed(db, second)
-    assert allowed is True
+    allowed, follow_up, reason = pipeline.dm_followup_allowed(db, second)
+    assert allowed is False
     assert follow_up == 1
+    assert "conversation is yours" in reason
     assert pipeline.dm_stats(db, stranger)[0] == 0
 
 
-def test_dm_cap_forces_public_reply(db):
-    for index in range(pipeline.DM_MAX_PER_PERSON):
-        db.add(
-            JobPost(
-                post_id=f"cap{index}", post_url="", author_handle="chatty_dev",
-                content="hiring", dm_status="sent", status="sent",
-                sent_at=datetime.now(timezone.utc) - timedelta(days=3),
-            )
+def test_dm_cap_is_one_first_message_per_person(db):
+    db.add(
+        JobPost(
+            post_id="cap0", post_url="", author_handle="chatty_dev",
+            content="hiring", dm_status="sent", status="sent",
+            sent_at=datetime.now(timezone.utc) - timedelta(days=3),
         )
+    )
     target = JobPost(
         post_id="cap-new", post_url="", author_handle="chatty_dev", content="hiring",
     )
@@ -286,11 +286,11 @@ def test_dm_cap_forces_public_reply(db):
 
     allowed, count, reason = pipeline.dm_followup_allowed(db, target)
     assert allowed is False
-    assert count == pipeline.DM_MAX_PER_PERSON
-    assert "public reply only" in reason
+    assert count == 1
+    assert "conversation is yours" in reason
 
 
-def test_recent_dm_blocks_an_immediate_follow_up(db):
+def test_recent_dm_also_blocks_another(db):
     db.add(
         JobPost(
             post_id="recent1", post_url="", author_handle="recent_dev", content="hiring",
@@ -303,7 +303,7 @@ def test_recent_dm_blocks_an_immediate_follow_up(db):
 
     allowed, _count, reason = pipeline.dm_followup_allowed(db, target)
     assert allowed is False
-    assert "follow-up in about" in reason
+    assert "conversation is yours" in reason
 
 
 def test_unknown_dm_is_counted_too(db):

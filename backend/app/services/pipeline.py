@@ -174,6 +174,34 @@ def _feed(
     )
 
 
+def _looks_like_job_feed(content: str) -> bool:
+    """The 'HIRING via <company>: visa sponsorship' template used by feeds."""
+    return bool(
+        re.search(
+            r"^\s*(?:hiring|now hiring)\s+via\b|"
+            r"\b(?:sponsors? visas?|will sponsor your visa|can sponsor visas?|"
+            r"visa sponsorship (?:to|in) (?:the )?(?:us|uk|eu|canada|germany|"
+            r"australia|singapore|ireland|france|switzerland|japan|netherlands))\b",
+            content or "",
+            re.I,
+        )
+    )
+
+
+def _repeat_poster(db: Session, user_id: int | None, handle: str, days: int = 14) -> int:
+    """How many distinct posts this handle made recently (feed vs individual)."""
+    clean = (handle or "").strip().lstrip("@").lower()
+    if not clean:
+        return 0
+    stmt = select(func.count(func.distinct(JobPost.content_hash))).where(
+        func.lower(JobPost.author_handle) == clean,
+        JobPost.discovered_at >= _now() - timedelta(days=days),
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+    return int(db.scalar(stmt) or 0)
+
+
 def scan(
     db: Session,
     *,
@@ -410,6 +438,14 @@ def scan(
             job.author_type = str(
                 row.get("author_type") or discovery.classify_author(job.author_handle, job.author_name)
             )
+            if job.author_type == "person" and (
+                _looks_like_job_feed(job.content)
+                or _repeat_poster(db, user_id, job.author_handle) >= 5
+            ):
+                # A feed posting the same "HIRING via ..." template across many
+                # companies is not the individual hirer the DM is written for.
+                job.author_type = "job_board"
+                _log(job, "multi-company job feed - treated as a job board, not a person")
             # Job boards and aggregator accounts rarely read replies. Keep their
             # apply link or email, but never send a public reply/DM to them.
             if job.author_type == "job_board":
@@ -1862,7 +1898,7 @@ def _email_body(profile: Profile, job: JobPost) -> tuple[str, str]:
     return subject, "\n".join(body_lines)
 
 
-DM_MAX_PER_PERSON = 4
+DM_MAX_PER_PERSON = 1
 DM_FOLLOWUP_GAP = timedelta(hours=6)
 
 
@@ -1930,7 +1966,7 @@ def dm_followup_allowed(db: Session, job: JobPost) -> tuple[bool, int, str]:
         return (
             False,
             count,
-            f"already sent {count} DMs to @{job.author_handle} - public reply only now",
+            f"already sent the first DM to @{job.author_handle} - the conversation is yours now",
         )
     if count > 0 and last is not None and (_now() - last) < DM_FOLLOWUP_GAP:
         wait = DM_FOLLOWUP_GAP - (_now() - last)
@@ -2281,29 +2317,6 @@ def _send_one(
             )
             db.commit()
 
-            # No reply from them yet: following is the polite nudge instead of
-            # another DM. Only for real people, never job-board accounts.
-            if not job.followed and (job.author_type or "person") in ("person", "founder"):
-                follow = _follow(job, creds)
-                follow_code = follow.get("code", "ERROR")
-                if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
-                    job.followed = True
-                    db.add(
-                        ActionLog(
-                            user_id=job.user_id,
-                            job_id=job.id,
-                            action="follow",
-                            status="sent",
-                            target=f"@{job.author_handle}",
-                            content="",
-                            detail="no reply to earlier DMs - followed instead of DMing again",
-                        )
-                    )
-                    db.commit()
-                    _log(job, f"followed @{job.author_handle} instead of another DM")
-                else:
-                    _log(job, f"follow instead of DM failed ({follow_code})")
-
     if (
         method != "reply"
         and settings_row.send_dms
@@ -2316,29 +2329,6 @@ def _send_one(
         state = limits.check(db, settings_row, "dm", ignore_gap=force)
         if not state.allowed:
             return {"deferred": state.reason}
-
-        # Follow-up DM: follow the person first so a non-answer does not hide
-        # the message in their requests/unknown inbox.
-        if dm_count > 0 and not job.followed:
-            follow = _follow(job, creds)
-            follow_code = follow.get("code", "ERROR")
-            if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
-                job.followed = True
-                db.add(
-                    ActionLog(
-                        user_id=job.user_id,
-                        job_id=job.id,
-                        action="follow",
-                        status="sent",
-                        target=f"@{job.author_handle}",
-                        content="",
-                        detail="followed before the follow-up DM",
-                    )
-                )
-                db.commit()
-                _log(job, f"followed @{job.author_handle} before the follow-up DM")
-            else:
-                _log(job, f"follow before follow-up failed ({follow_code}) - sending DM anyway")
 
         job.dm_attempts = int(job.dm_attempts or 0) + 1
 
