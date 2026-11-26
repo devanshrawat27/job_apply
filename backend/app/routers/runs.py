@@ -83,6 +83,7 @@ def dashboard(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
         "usage": limits.stats(db, settings_row),
         "pending_approvals": pipeline.pending_count(db, uid),
         "apply_links": pipeline.apply_link_count(db, uid),
+        "blocked_dms": pipeline.blocked_dm_count(db, uid),
         "last_run": (
             {
                 "id": last.id,

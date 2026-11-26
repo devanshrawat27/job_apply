@@ -2774,3 +2774,18 @@ def apply_link_count(db: Session, user_id: int | None = None) -> int:
         stmt = stmt.where(JobPost.user_id == user_id)
     return int(db.scalar(stmt) or 0)
 
+
+def blocked_dm_count(db: Session, user_id: int | None = None) -> int:
+    """First messages the agent wrote but X will not deliver yet.
+
+    These are held (not discarded) until the sender account passes X's
+    verification for cold message requests.
+    """
+    stmt = select(func.count(JobPost.id)).where(
+        JobPost.dm_status == "blocked",
+        JobPost.status != "rejected",
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+    return int(db.scalar(stmt) or 0)
+

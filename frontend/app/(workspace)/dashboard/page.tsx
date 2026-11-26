@@ -35,6 +35,7 @@ export default function DashboardPage() {
   const pending = dashboard?.pending_approvals ?? 0
   const applyLinks = dashboard?.apply_links ?? 0
   const waiting = pending + applyLinks
+  const blockedDms = dashboard?.blocked_dms ?? 0
   const dmBlocked = Boolean(account?.dm_status && account.dm_status !== 'ok')
 
   return (
@@ -70,11 +71,16 @@ export default function DashboardPage() {
       {dmBlocked ? (
         <Alert className="border-amber-500/40 bg-amber-500/5">
           <ShieldAlertIcon className="text-amber-600 dark:text-amber-400" />
-          <AlertTitle>X is holding your cold DMs</AlertTitle>
+          <AlertTitle>
+            {blockedDms > 0
+              ? `X is holding ${blockedDms} first message${blockedDms === 1 ? '' : 's'}`
+              : 'X is holding your cold DMs'}
+          </AlertTitle>
           <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              X requires a verified sender for message requests, so DMs stay queued while replies,
-              apply links and emails keep going.
+              The agent wrote the opening message for each job. X requires a verified sender for
+              message requests, so those DMs stay queued while replies, apply links and emails keep
+              going.
             </span>
             <Link href="/settings" className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
               Verify &amp; reconnect

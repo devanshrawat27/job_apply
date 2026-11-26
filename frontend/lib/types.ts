@@ -172,6 +172,7 @@ export interface Dashboard {  agent: { running: boolean; busy: boolean; last_sca
   }
   pending_approvals: number
   apply_links: number
+  blocked_dms: number
   last_run: {
     id: number
     kind: string
