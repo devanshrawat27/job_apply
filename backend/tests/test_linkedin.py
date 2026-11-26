@@ -153,6 +153,11 @@ def test_senior_and_non_tech_titles_are_rejected():
     mid = dict(linkedin_guest.parse_detail(DETAIL), title="Software Engineer 2")
     assert linkedin_jobs.assess(make_profile(), {}, mid)["ok"] is False
 
+    dashed = dict(
+        linkedin_guest.parse_detail(DETAIL), title="Software Development Engineer - II"
+    )
+    assert linkedin_jobs.assess(make_profile(), {}, dashed)["ok"] is False
+
     sales = dict(linkedin_guest.parse_detail(DETAIL), title="Sales Executive", company="Acme")
     verdict = linkedin_jobs.assess(make_profile(), {}, sales)
     assert verdict["ok"] is False
@@ -259,6 +264,51 @@ def test_scan_creates_a_linkedin_apply_link_and_dedupes(db, monkeypatch):
     assert again.stats["duplicates"] >= 1
     count = len(list(db.scalars(select(JobPost).where(JobPost.source == "linkedin"))))
     assert count == 1
+
+
+def test_rejected_linkedin_cards_are_remembered_so_the_scan_advances(db, monkeypatch):
+    """A card that was examined must be deduped next pass.
+
+    Without a row the same top cards consumed the small detail budget on every
+    scan, so newer listings were never read.
+    """
+    db.add(make_profile())
+    db.add(AgentSettings(id=1, enabled=True, linkedin_enabled=True))
+    db.commit()
+
+    monkeypatch.setattr(
+        linkedin_guest,
+        "search_jobs",
+        lambda *a, **k: linkedin_guest.parse_search_cards(f"<ul>{CARD}</ul>"),
+    )
+
+    def fake_assess(profile, card, detail):
+        return {
+            "ok": False,
+            "reason": "needs about 5 year(s) of experience, you have less",
+            "relevance": 40,
+            "title": "Python Developer",
+            "company": "Acme Labs",
+            "location": "Remote, India",
+            "required_experience_months": 60,
+            "scam_score": 0,
+            "scam_reasons": [],
+        }
+
+    monkeypatch.setattr(linkedin_jobs, "assess", fake_assess)
+
+    first = pipeline.scan_linkedin(db, manual=True)
+    assert first.status == "completed", first.error
+    rows = list(db.scalars(select(JobPost).where(JobPost.source == "linkedin")))
+    assert len(rows) == 1
+    assert rows[0].post_id == "li:4492573591"
+    assert rows[0].status == "rejected"
+    assert "5 year" in rows[0].decision_reason
+
+    second = pipeline.scan_linkedin(db, manual=True)
+    assert second.status == "completed"
+    assert second.stats["duplicates"] == 1
+    assert len(list(db.scalars(select(JobPost).where(JobPost.source == "linkedin")))) == 1
 
 
 def test_scan_is_skipped_when_linkedin_is_off(db):

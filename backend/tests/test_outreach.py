@@ -258,6 +258,121 @@ def test_passcode_required_is_a_retryable_failure(db, monkeypatch):
     assert "passcode" in (job.last_error or "").lower()
 
 
+def test_unverified_account_holds_dms_and_requeues_after_verification(db, monkeypatch):
+    """X sender verification must not throw the lead away."""
+    _prepare(db, monkeypatch)
+    account = db.scalar(select(XAccount))
+    account.dm_status = "unverified"
+    db.commit()
+
+    calls: list[str] = []
+
+    def fake_write(name, args=None, **kwargs):
+        calls.append(name)
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake_write)
+    pipeline.send_batch(db)
+
+    job = db.scalar(select(JobPost))
+    db.refresh(job)
+    assert calls == ["reply"]  # the DM is held, not attempted
+    assert job.dm_status == "blocked"
+    assert job.status == "sent"
+    assert job.next_retry_at is not None
+
+    # The human verifies X and reconnects; the held DM gets one more chance.
+    account = db.scalar(select(XAccount))
+    account.dm_status = "ok"
+    db.commit()
+    assert pipeline.requeue_blocked_dms(db) == 1
+    db.refresh(job)
+    assert job.status == "queued"
+    assert job.dm_status == "none"
+
+    pipeline.send_batch(db)
+    db.refresh(job)
+    assert job.dm_status == "sent"
+    assert calls == ["reply", "dm"]
+
+
+def test_sender_verification_error_keeps_the_dm_recoverable(db, monkeypatch):
+    _prepare(db, monkeypatch)
+
+    def fake_write(name, args=None, **kwargs):
+        if name == "dm":
+            return {
+                "success": False,
+                "code": "DM_UNVERIFIED",
+                "error": "sender is not verified for message requests",
+            }
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake_write)
+    pipeline.send_batch(db)
+
+    job = db.scalar(select(JobPost))
+    db.refresh(job)
+    assert job.dm_status == "blocked"
+    assert job.status == "sent"
+    assert job.next_retry_at is not None
+    account = db.scalar(select(XAccount))
+    db.refresh(account)
+    assert account.dm_status == "unverified"
+
+
+def test_reply_box_timeout_is_retried_instead_of_failed(db, monkeypatch):
+    _prepare(db, monkeypatch)
+
+    def fake_write(name, args=None, **kwargs):
+        if name == "reply":
+            return {
+                "success": False,
+                "code": "ERROR",
+                "error": (
+                    'locator.waitFor: Timeout 15000ms exceeded. waiting for '
+                    'locator(\'[role="dialog"][aria-modal="true"]\') to be visible'
+                ),
+            }
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake_write)
+    pipeline.send_batch(db)
+
+    job = db.scalar(select(JobPost))
+    db.refresh(job)
+    assert job.status == "retry_wait"
+    assert job.reply_status == "pending"
+    assert job.next_retry_at is not None
+
+
+def test_stale_undecided_posts_are_closed(db):
+    now = datetime.now(timezone.utc)
+    old = JobPost(
+        post_id="stale-1",
+        status="new",
+        outreach_method="dm",
+        content="We are hiring a teacher in Texas.",
+        discovered_at=now - timedelta(days=3),
+    )
+    fresh = JobPost(
+        post_id="stale-2",
+        status="new",
+        outreach_method="dm",
+        content="We are hiring a React developer.",
+        discovered_at=now - timedelta(minutes=10),
+    )
+    db.add_all([old, fresh])
+    db.commit()
+
+    assert pipeline.expire_stale_new(db) == 1
+    db.refresh(old)
+    db.refresh(fresh)
+    assert old.status == "rejected"
+    assert "stale" in old.decision_reason
+    assert fresh.status == "new"
+
+
 def test_set_and_clear_dm_passcode(db):
     from fastapi.testclient import TestClient
 

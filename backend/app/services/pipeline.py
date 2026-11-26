@@ -1075,6 +1075,68 @@ def scan_linkedin(
             reasons = stats["rejected_reasons"]
             reasons[key] = int(reasons.get(key, 0)) + 1
 
+        def remember_rejected(
+            card: dict,
+            post_id: str,
+            reason: str,
+            *,
+            title: str,
+            company: str,
+            location: str,
+            keyword: str,
+            relevance: int = 0,
+            detail: dict | None = None,
+        ) -> None:
+            """Keep a row for a card that was examined and rejected.
+
+            Without it the same top cards were opened and rejected on every
+            pass, so the small detail budget never reached the rest of the
+            search results.
+            """
+            post_url = str(card.get("url") or "") or (
+                f"https://www.linkedin.com/jobs/view/{card['job_id']}/"
+            )
+            fingerprint = (
+                discovery.content_fingerprint(f"{company} {title} {location}")
+                if company and title
+                else ""
+            )
+            entry = JobPost(
+                user_id=user_id,
+                post_id=post_id,
+                source="linkedin",
+                source_job_id=str(card["job_id"]),
+                post_url=post_url[:400],
+                author_handle=_company_handle(
+                    (detail or {}).get("company_url") or "", company
+                ),
+                author_name=(company or "")[:200],
+                content=f"{title} at {company}".strip(),
+                content_hash=fingerprint,
+                posted_at=linkedin_guest.posted_datetime(
+                    card.get("posted_text")
+                    or card.get("posted_at")
+                    or (detail or {}).get("posted_text")
+                    or (detail or {}).get("posted_at")
+                ),
+                query_text=keyword[:200],
+                status="rejected",
+                relevance=max(0, int(relevance or 0)),
+                company=(company or "")[:200],
+                role=(title or "")[:200],
+                job_location=(location or "")[:200],
+                apply_method="link",
+                outreach_method="link",
+                apply_url=post_url[:500],
+                author_type="company",
+                decision_reason=(reason or "not a fit")[:500],
+                reason=(reason or "")[:500],
+            )
+            db.add(entry)
+            existing.add(post_id)
+            if fingerprint:
+                existing_hashes.add(fingerprint)
+
         def remember_block() -> None:
             until = linkedin_guest.cooldown_until() or (_now() + timedelta(minutes=90))
             settings_row.linkedin_pause_until = until.replace(tzinfo=None)
@@ -1166,10 +1228,34 @@ def scan_linkedin(
 
                 verdict = linkedin_jobs.assess(profile, card, detail)
                 if not verdict["ok"]:
-                    reject(str(verdict["reason"]))
+                    reason = str(verdict["reason"])
+                    reject(reason)
+                    remember_rejected(
+                        card,
+                        post_id,
+                        reason,
+                        title=str(verdict["title"] or title),
+                        company=str(verdict["company"] or ""),
+                        location=str(verdict["location"] or ""),
+                        keyword=row.keyword,
+                        relevance=int(verdict["relevance"] or 0),
+                        detail=detail,
+                    )
                     continue
                 if int(verdict["relevance"]) < LINKEDIN_MIN_RELEVANCE:
-                    reject(f"weak match (score {verdict['relevance']})")
+                    reason = f"weak match (score {verdict['relevance']})"
+                    reject(reason)
+                    remember_rejected(
+                        card,
+                        post_id,
+                        reason,
+                        title=str(verdict["title"] or title),
+                        company=str(verdict["company"] or ""),
+                        location=str(verdict["location"] or ""),
+                        keyword=row.keyword,
+                        relevance=int(verdict["relevance"] or 0),
+                        detail=detail,
+                    )
                     continue
 
                 company = verdict["company"]
@@ -1547,6 +1633,67 @@ def _expire_queued(db: Session, user_id: int | None, hours: int = 24) -> int:
             continue
         job.status = "skipped"
         job.decision_reason = f"expired - waited more than {hours}h in the queue"
+        job.reply_text = ""
+        job.dm_text = ""
+        _log(job, job.decision_reason)
+        expired += 1
+    if expired:
+        db.commit()
+    return expired
+
+
+def requeue_blocked_dms(
+    db: Session, user_id: int | None = None, hours: int = 12
+) -> int:
+    """Put DMs held by X sender verification back in the queue.
+
+    X requires a verified sender for cold message requests. While that is
+    true, cold DMs are held (``dm_status="blocked"``) instead of thrown away.
+    Once the account can DM again, recent posts get one more chance.
+    """
+    cutoff = _now() - timedelta(hours=max(1, hours))
+    stmt = select(JobPost).where(JobPost.dm_status == "blocked")
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+
+    count = 0
+    for job in db.scalars(stmt).all():
+        posted = _as_utc(job.posted_at) or _as_utc(job.discovered_at)
+        if posted is not None and posted < cutoff:
+            continue
+        job.status = "queued"
+        job.dm_status = "none"
+        job.next_retry_at = None
+        job.last_error = ""
+        _log(job, "X allows DMs again - queued the held DM")
+        count += 1
+    if count:
+        db.commit()
+    return count
+
+
+def expire_stale_new(db: Session, user_id: int | None = None, hours: int = 24) -> int:
+    """Close undecided posts that never became a link or a draft.
+
+    A handful of legacy rows sat in ``new`` for days because they matched no
+    outreach path. They are not actionable, so keep them out of the queues.
+    """
+    cutoff = _now() - timedelta(hours=hours)
+    stmt = select(JobPost).where(
+        JobPost.status == "new",
+        or_(JobPost.apply_url.is_(None), JobPost.apply_url == ""),
+        JobPost.outreach_method != "link",
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+
+    expired = 0
+    for job in db.scalars(stmt).all():
+        moment = _as_utc(job.posted_at) or _as_utc(job.discovered_at)
+        if moment is not None and moment >= cutoff:
+            continue
+        job.status = "rejected"
+        job.decision_reason = f"stale - left undecided for more than {hours}h"
         job.reply_text = ""
         job.dm_text = ""
         _log(job, job.decision_reason)
@@ -2049,6 +2196,32 @@ def _send_one(
             job.status = "queued"
             return {"stop": stop, "job_status": "queued"}
         if job.reply_status in ("failed", "unknown"):
+            error_text = str(result.get("error") or code).lower()
+            # A composer that never opened sent nothing, so it is safe to try
+            # again. A hard 90s timeout may have posted already - keep it failed
+            # for the human to verify instead of risking a duplicate reply.
+            nothing_sent = any(
+                token in error_text
+                for token in ("locator.waitfor", "not visible", "composer", "dialog")
+            )
+            prior_failures = int(
+                db.scalar(
+                    select(func.count(ActionLog.id)).where(
+                        ActionLog.job_id == job.id,
+                        ActionLog.action == "reply",
+                        ActionLog.status == "failed",
+                    )
+                )
+                or 0
+            )
+            if nothing_sent and prior_failures <= 1:
+                job.status = "retry_wait"
+                job.reply_status = "pending"
+                job.next_retry_at = _now() + timedelta(minutes=30)
+                job.last_error = "waiting to retry: the reply box did not open"
+                _log(job, "reply box did not open - auto-retry once in 30 min")
+                db.commit()
+                return {}
             job.status = "failed"
             job.last_error = result.get("error") or code
             return {}
@@ -2087,7 +2260,10 @@ def _send_one(
         and (account.dm_status or "ok") in ("unverified", "blocked")
         and job.dm_status in ("none", "pending")
     ):
-        job.dm_status = "skipped"
+        # This is the sender account's problem, not this person's: keep the
+        # DM recoverable so it can go out once X lets the account message.
+        job.dm_status = "blocked"
+        job.next_retry_at = _now() + timedelta(hours=1)
         job.decision_reason = (
             "X is blocking cold DMs from this account (sender verification needed)"
         )
@@ -2104,7 +2280,7 @@ def _send_one(
             )
         )
         if job.reply_status != "sent":
-            job.status = "skipped"
+            job.status = "pending_approval"
             db.commit()
             return {}
         db.commit()
@@ -2296,6 +2472,15 @@ def _send_one(
             job.status = "queued"
             return {"stop": stop, "job_status": "queued"}
 
+        if code == "DM_UNVERIFIED":
+            # Account-level block, not this lead's fault: keep the DM so it can
+            # go out after the X account is verified.
+            job.dm_status = "blocked"
+            job.next_retry_at = _now() + timedelta(hours=1)
+            job.decision_reason = (
+                "X is blocking cold DMs from this account (sender verification needed)"
+            )
+
         # Closed inbox: remember the handle so future posts never DM them again.
         if code == "DM_CLOSED":
             handle = job.author_handle.strip().lstrip("@").lower()
@@ -2336,6 +2521,17 @@ def _send_one(
         job.last_error = "outcome unknown - open X and verify manually"
     elif failed:
         job.status = "failed"
+    elif job.dm_status == "blocked":
+        # The reply went out; the DM is waiting for the X account to be
+        # verified. Keep it out of "failed" so it is retried, not lost.
+        job.status = "sent" if job.reply_status == "sent" else "pending_approval"
+        if job.status == "sent":
+            job.sent_at = _now()
+        job.last_error = (
+            "X is blocking cold DMs from this account until the sender is verified"
+        )
+        _log(job, "DM held: sender verification is required by X")
+        return {}
     elif method == "email":
         job.status = "sent" if job.email_status in ("sent", "skipped") else "failed"
     elif method == "reply":
@@ -2435,6 +2631,10 @@ def approve(db: Session, job: JobPost, *, approved: bool, reply_text: str | None
     if approved:
         job.status = "queued"
         job.decision_reason = "approved by you - queued to send"
+        if job.dm_status == "blocked":
+            # The human asked for this one explicitly; try the DM again.
+            job.dm_status = "none"
+            job.next_retry_at = None
         _log(job, "approved by you - queued to send")
         # Learn from what the human actually approved (often after editing).
         if job.reply_text or job.dm_text:

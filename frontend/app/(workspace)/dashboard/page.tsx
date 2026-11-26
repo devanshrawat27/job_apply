@@ -13,6 +13,7 @@ import {
   RadarIcon,
   SearchIcon,
   SendIcon,
+  ShieldAlertIcon,
   SparklesIcon,
 } from 'lucide-react'
 
@@ -32,6 +33,9 @@ export default function DashboardPage() {
 
   const usage = dashboard?.usage
   const pending = dashboard?.pending_approvals ?? 0
+  const applyLinks = dashboard?.apply_links ?? 0
+  const waiting = pending + applyLinks
+  const dmBlocked = Boolean(account?.dm_status && account.dm_status !== 'ok')
 
   return (
     <main className="flex w-full flex-col gap-5">
@@ -60,6 +64,23 @@ export default function DashboardPage() {
         <Alert variant="destructive">
           <AlertTitle>Backend not reachable</AlertTitle>
           <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      ) : null}
+
+      {dmBlocked ? (
+        <Alert className="border-amber-500/40 bg-amber-500/5">
+          <ShieldAlertIcon className="text-amber-600 dark:text-amber-400" />
+          <AlertTitle>X is holding your cold DMs</AlertTitle>
+          <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              X requires a verified sender for message requests, so DMs stay queued while replies,
+              apply links and emails keep going.
+            </span>
+            <Link href="/settings" className={cn(buttonVariants({ size: 'sm', variant: 'outline' }))}>
+              Verify &amp; reconnect
+              <ArrowRightIcon className="size-4" />
+            </Link>
+          </AlertDescription>
         </Alert>
       ) : null}
 
@@ -107,8 +128,14 @@ export default function DashboardPage() {
           <Metric
             icon={ClipboardCheckIcon}
             label="Waiting for you"
-            value={loading ? '—' : pending}
-            hint="posts the agent was unsure about"
+            value={loading ? '—' : waiting}
+            hint={
+              pending > 0 || applyLinks > 0
+                ? `${pending} draft${pending === 1 ? '' : 's'} · ${applyLinks} apply link${
+                    applyLinks === 1 ? '' : 's'
+                  }`
+                : 'drafts and apply links'
+            }
           />
           <Metric
             icon={MessageSquareIcon}
@@ -174,11 +201,18 @@ export default function DashboardPage() {
         </div>
 
         <Link
-          href="/approvals"
-          className={cn(buttonVariants({ size: 'lg', variant: pending > 0 ? 'default' : 'outline' }), 'mt-4 w-full')}
+          href={pending > 0 ? '/approvals' : applyLinks > 0 ? '/apply-links' : '/approvals'}
+          className={cn(
+            buttonVariants({ size: 'lg', variant: waiting > 0 ? 'default' : 'outline' }),
+            'mt-4 w-full',
+          )}
         >
           <ClipboardCheckIcon className="size-4" />
-          {pending > 0 ? `Review ${pending} draft${pending > 1 ? 's' : ''}` : 'Open approvals'}
+          {pending > 0
+            ? `Review ${pending} draft${pending > 1 ? 's' : ''}`
+            : applyLinks > 0
+              ? `Open ${applyLinks} apply link${applyLinks > 1 ? 's' : ''}`
+              : 'Open approvals'}
         </Link>
       </section>
 

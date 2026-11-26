@@ -29,10 +29,11 @@ SENIOR_TITLE_RE = re.compile(
     re.I,
 )
 
-# "Software Engineer 2" / "Developer II" is a mid-level title even without the
-# word "senior". An early-career candidate should not get it.
+# "Software Engineer 2" / "Developer II" / "Engineer - II" is a mid-level
+# title even without the word "senior". An early-career candidate should not
+# get it. The separator is optional because listings write it both ways.
 LEVEL_NUMBER_RE = re.compile(
-    r"\b(?:engineer|developer|sde|analyst|consultant|programmer)\s*(?:2|ii|3|iii|iv)\b",
+    r"\b(?:engineer|developer|sde|analyst|consultant|programmer)\s*[-–—/]?\s*(?:2|ii|3|iii|iv)\b",
     re.I,
 )
 

@@ -213,11 +213,25 @@ class AgentLoop(threading.Thread):
                 if job.next_retry_at is not None and job.next_retry_at > now_naive:
                     continue
                 job.status = "queued"
-                job.dm_status = "pending"
+                if job.dm_status == "none":
+                    job.dm_status = "pending"
                 job.next_retry_at = None
                 job.last_error = ""
                 job.logs = [*(job.logs or []), "retry window reached - queued again"][-60:]
             db.commit()
+
+        # 0a2. DMs held by X sender verification get one more chance once the
+        # account can message again (after the human verifies / reconnects).
+        if x_ready:
+            account = accounts.active_account(db, user_id)
+            if account is not None and (account.dm_status or "ok") == "ok":
+                try:
+                    requeued = pipeline.requeue_blocked_dms(db, user_id)
+                    if requeued:
+                        logger.info("user %s requeued %s held DMs", user_id, requeued)
+                except Exception:  # noqa: BLE001 - never break the loop
+                    logger.warning("requeue of held DMs failed for user %s", user_id, exc_info=True)
+                    db.rollback()
 
         # 0b. Read the X inbox for answers (read-only, every ~20 min).
         last_inbox = self._last_inbox.get(user_id)
@@ -250,6 +264,13 @@ class AgentLoop(threading.Thread):
                     logger.info("user %s link check: %s", user_id, checked)
             except Exception:  # noqa: BLE001 - never break the loop
                 logger.warning("link check failed for user %s", user_id, exc_info=True)
+                db.rollback()
+            try:
+                stale = pipeline.expire_stale_new(db, user_id)
+                if stale:
+                    logger.info("user %s closed %s stale undecided posts", user_id, stale)
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("stale post cleanup failed for user %s", user_id, exc_info=True)
                 db.rollback()
 
         # 1. Send at most one queued post (the cool-down owns the pace). When X
