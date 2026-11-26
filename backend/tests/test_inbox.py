@@ -112,3 +112,77 @@ def test_inbox_ignores_our_own_last_message(monkeypatch):
     db.refresh(job)
     assert job.incoming_reply_at is None
     db.close()
+
+
+def test_read_inbox_picks_the_other_participant_not_ourselves(monkeypatch):
+    from app.services import x_dm_api
+
+    class _Response:
+        status_code = 200
+
+        def json(self):
+            return {
+                "inbox_initial_state": {
+                    "users": {
+                        "11111": {"id": 11111, "screen_name": "dev"},
+                        "22222": {"id": 22222, "screen_name": "hiringguy"},
+                    },
+                    "conversations": {
+                        "11111-22222": {
+                            "participants": [{"user_id": "11111"}, {"user_id": "22222"}],
+                            "sort_timestamp": "2",
+                        }
+                    },
+                    "entries": [
+                        {
+                            "message": {
+                                "conversation_id": "11111-22222",
+                                "message_data": {
+                                    "sender_id": "22222",
+                                    "text": "sure, send your resume",
+                                    "time": "1",
+                                },
+                            }
+                        }
+                    ],
+                }
+            }
+
+    class _Client:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args, **kwargs):
+            return _Response()
+
+    monkeypatch.setattr(x_dm_api, "_client", lambda creds: _Client())
+    data = x_dm_api.read_inbox({"twid": "u%3D11111"}, limit=5)
+    conversation = data["conversations"][0]
+    assert conversation["username"] == "hiringguy"
+    assert conversation["messages"][0]["sender"] == "hiringguy"
+
+
+def test_inbox_explains_when_xchat_messages_are_hidden(monkeypatch):
+    db = _reset()
+    db.add(XAccount(username="dev", status="connected", dm_status="ok"))
+    db.commit()
+    monkeypatch.setattr(
+        inbox.x_dm_api,
+        "read_inbox",
+        lambda *a, **kw: {
+            "count": 1,
+            "conversations": [
+                {
+                    "username": "someone",
+                    "messages": [{"sender": "dev", "text": "You: hello"}],
+                }
+            ],
+        },
+    )
+    result = inbox.sync(db, None, {"auth_token": "a"})
+    assert result["matched"] == 0
+    assert "end-to-end encrypted" in result["note"]
+    db.close()

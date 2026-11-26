@@ -113,9 +113,19 @@ def sync(db: Session, user_id: int | None, creds: dict) -> dict:
             logger.info("inbox: %s from @%s matched job %s", kind, handle, job.id)
 
     db.commit()
-    return {
+    result = {
         "ok": True,
         "matched": matched,
         "dms": len(dms),
         "mentions": len(mentions),
     }
+    if not dms and int(payload.get("count") or 0) > 0:
+        # XChat is end-to-end encrypted. The legacy DM API lists the
+        # conversations but only returns our own outbound messages, so zero
+        # "inbound" here does not mean nobody replied.
+        result["note"] = (
+            "XChat replies are end-to-end encrypted; the DM API returned no "
+            "inbound messages for the conversations it listed"
+        )
+        logger.info("inbox: %s", result["note"])
+    return result

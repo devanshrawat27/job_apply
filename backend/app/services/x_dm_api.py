@@ -12,8 +12,10 @@ Treat cookies and message text as sensitive: never log either.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
+from urllib.parse import unquote
 
 import httpx
 
@@ -247,10 +249,23 @@ def follow_user(handle: str, credentials: dict[str, str]) -> dict[str, Any]:
     return {"username": username, "user_id": user_id, "already": False}
 
 
+def _self_user_id(credentials: dict[str, str]) -> str:
+    """The numeric user id from the ``twid`` cookie (``u%3D123...``)."""
+    raw = unquote(str(credentials.get("twid") or ""))
+    match = re.search(r"(\d{5,})", raw)
+    return match.group(1) if match else ""
+
+
 def read_inbox(
     credentials: dict[str, str], *, limit: int = 25
 ) -> dict[str, Any]:
-    """Return recent DM conversations via X's private inbox endpoint."""
+    """Return recent DM conversations via X's private inbox endpoint.
+
+    X now carries most real conversations in its end-to-end encrypted XChat
+    app. These legacy endpoints still return the conversation shells and our
+    own outbound messages, but the incoming (encrypted) messages are not in the
+    payload - so callers must not treat "no inbound DM" as "nobody replied".
+    """
     capped = max(1, min(int(limit or 25), 100))
     with _client(credentials) as client:
         try:
@@ -294,13 +309,21 @@ def read_inbox(
             }
         )
 
+    self_id = _self_user_id(credentials)
     rows: list[dict[str, Any]] = []
     for conversation_id, conversation in conversations.items():
         participants = [
             str(participant.get("user_id") or "")
             for participant in conversation.get("participants") or []
         ]
-        other_id = next((uid for uid in participants if uid in users), None)
+        # The participant order is not guaranteed, so the first known user id
+        # is often our own account. Prefer the other participant explicitly.
+        other_id = next(
+            (uid for uid in participants if uid and uid != self_id and uid in users),
+            None,
+        )
+        if other_id is None:
+            other_id = next((uid for uid in participants if uid and uid != self_id), None)
         if other_id is None and participants:
             other_id = participants[0]
         user = users.get(other_id or "", {})
