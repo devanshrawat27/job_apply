@@ -8,12 +8,12 @@ from sqlalchemy import delete, select
 
 from app.agents import inbox, query_lab
 from app.database import SessionLocal
-from app.models import ActionLog, JobPost, SearchQuery
+from app.models import ActionLog, JobPost, SearchQuery, XAccount
 
 
 def _reset():
     db = SessionLocal()
-    for model in (ActionLog, JobPost, SearchQuery):
+    for model in (ActionLog, JobPost, SearchQuery, XAccount):
         db.execute(delete(model))
     db.commit()
     return db
@@ -43,15 +43,16 @@ def test_reply_marks_job_and_bumps_keyword(monkeypatch):
     db.commit()
 
     monkeypatch.setattr(
-        inbox.executor,
-        "run_script",
+        inbox.x_dm_api,
+        "read_inbox",
         lambda *a, **kw: {
-            "success": True,
-            "code": "OK",
-            "data": {
-                "dms": [{"handle": "hiringguy", "text": "sure, send your resume", "incoming": True}],
-                "mentions": [],
-            },
+            "count": 1,
+            "conversations": [
+                {
+                    "username": "hiringguy",
+                    "messages": [{"sender": "hiringguy", "text": "sure, send your resume"}],
+                }
+            ],
         },
     )
 
@@ -90,19 +91,21 @@ def test_inbox_ignores_our_own_last_message(monkeypatch):
         dm_status="sent",
         sent_at=datetime.now(timezone.utc),
     )
+    db.add(XAccount(username="dev", status="connected", dm_status="ok"))
     db.add(job)
     db.commit()
 
     monkeypatch.setattr(
-        inbox.executor,
-        "run_script",
+        inbox.x_dm_api,
+        "read_inbox",
         lambda *a, **kw: {
-            "success": True,
-            "code": "OK",
-            "data": {
-                "dms": [{"handle": "someone", "text": "You: hello", "incoming": False}],
-                "mentions": [],
-            },
+            "count": 1,
+            "conversations": [
+                {
+                    "username": "someone",
+                    "messages": [{"sender": "dev", "text": "You: hello"}],
+                }
+            ],
         },
     )
     assert inbox.sync(db, None, {"auth_token": "a"})["matched"] == 0

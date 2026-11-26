@@ -14,8 +14,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agents import query_lab
-from app.models import ActionLog, JobPost
-from app.services import executor
+from app.models import ActionLog, JobPost, XAccount
+from app.services import x_dm_api
 
 logger = logging.getLogger(__name__)
 
@@ -50,18 +50,37 @@ def _mark(job: JobPost, text: str, kind: str) -> None:
 
 
 def sync(db: Session, user_id: int | None, creds: dict) -> dict:
-    """Read the inbox once and mark any matching jobs as replied."""
-    result = executor.run_script("check_inbox", {}, creds=creds, user_id=user_id)
-    if not result.get("success"):
-        return {
-            "ok": False,
-            "error": str(result.get("error") or result.get("code") or "inbox check failed"),
-            "matched": 0,
-        }
+    """Read the DM inbox through X's own endpoint and mark matching jobs."""
+    try:
+        payload = x_dm_api.read_inbox(creds, limit=40)
+    except (x_dm_api.DMUnavailable, x_dm_api.DMError) as exc:
+        return {"ok": False, "error": str(exc), "matched": 0}
 
-    data = result.get("data") or {}
-    dms = [item for item in (data.get("dms") or []) if item.get("incoming")]
-    mentions = [item for item in (data.get("mentions") or []) if item.get("incoming")]
+    own_stmt = select(XAccount.username)
+    if user_id is not None:
+        own_stmt = own_stmt.where(XAccount.user_id == user_id)
+    own = str(db.scalar(own_stmt) or "").lstrip("@").lower()
+
+    dms: list[dict] = []
+    for conversation in payload.get("conversations") or []:
+        handle = str(conversation.get("username") or "").strip().lstrip("@")
+        if not handle:
+            continue
+        incoming = [
+            message
+            for message in (conversation.get("messages") or [])
+            if str(message.get("sender") or "").lstrip("@").lower() not in ("", own)
+        ]
+        if not incoming:
+            continue
+        last = incoming[-1]
+        if not str(last.get("text") or "").strip():
+            continue
+        dms.append({"handle": handle, "text": str(last.get("text") or ""), "incoming": True})
+
+    # Mentions/replies on public posts need a separate timeline search; the DM
+    # inbox is the reliable API path and covers direct answers.
+    mentions: list[dict] = []
 
     matched = 0
     seen_handles: set[str] = set()

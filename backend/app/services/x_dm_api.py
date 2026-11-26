@@ -215,6 +215,38 @@ def send_dm(handle: str, message: str, credentials: dict[str, str]) -> dict[str,
         "text": str(message_data.get("text") or text),
     }
 
+def follow_user(handle: str, credentials: dict[str, str]) -> dict[str, Any]:
+    """Follow a user through X's own endpoint (no Chromium window)."""
+    username = handle.strip().lstrip("@")
+    if not username:
+        raise DMError("A follow needs a username.")
+    with _client(credentials) as client:
+        user_id = resolve_user_id(client, username)
+        try:
+            response = client.post(
+                "https://x.com/i/api/1.1/friendships/create.json",
+                data={"user_id": user_id},
+                headers={"content-type": "application/x-www-form-urlencoded"},
+            )
+        except httpx.HTTPError as exc:
+            raise DMUnavailable(f"follow request failed: {type(exc).__name__}") from exc
+
+    if response.status_code in {401, 403, 429}:
+        body = response.text[:400]
+        lowered = body.lower()
+        if "already" in lowered or '"code":160' in body or "code\":160" in body:
+            return {"username": username, "user_id": user_id, "already": True}
+        if response.status_code == 429:
+            raise DMUnavailable("X rate-limited the follow")
+        raise DMError(f"X refused the follow (HTTP {response.status_code}): {body[:160]}")
+    if response.status_code >= 500:
+        raise DMUnavailable(f"follow unavailable with {response.status_code}")
+    if response.status_code != 200:
+        raise DMError(f"X returned HTTP {response.status_code} for the follow")
+
+    return {"username": username, "user_id": user_id, "already": False}
+
+
 def read_inbox(
     credentials: dict[str, str], *, limit: int = 25
 ) -> dict[str, Any]:

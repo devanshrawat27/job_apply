@@ -1795,6 +1795,32 @@ def dm_followup_allowed(db: Session, job: JobPost) -> tuple[bool, int, str]:
     return True, count, ""
 
 
+def _follow(job: JobPost, creds: dict) -> dict:
+    """Follow through X's endpoint first; the browser is only a fallback."""
+    try:
+        result = x_dm_api.follow_user(job.author_handle, creds)
+        return {
+            "success": True,
+            "code": "ALREADY_FOLLOWING" if result.get("already") else "OK",
+            "data": result,
+        }
+    except x_dm_api.DMError as exc:
+        message = str(exc).lower()
+        return {
+            "success": False,
+            "code": "ALREADY_FOLLOWING" if "already" in message else "ERROR",
+            "error": str(exc),
+        }
+    except x_dm_api.DMUnavailable as exc:
+        _log(job, f"follow endpoint unavailable ({exc}) - using the browser")
+        return executor.run_script(
+            "follow",
+            {"username": job.author_handle},
+            creds=creds,
+            user_id=job.user_id,
+        )
+
+
 def _send_one(
     db: Session,
     job: JobPost,
@@ -2112,7 +2138,7 @@ def _send_one(
             # No reply from them yet: following is the polite nudge instead of
             # another DM. Only for real people, never job-board accounts.
             if not job.followed and (job.author_type or "person") in ("person", "founder"):
-                follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds, user_id=job.user_id)
+                follow = _follow(job, creds)
                 follow_code = follow.get("code", "ERROR")
                 if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
                     job.followed = True
@@ -2148,7 +2174,7 @@ def _send_one(
         # Follow-up DM: follow the person first so a non-answer does not hide
         # the message in their requests/unknown inbox.
         if dm_count > 0 and not job.followed:
-            follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds, user_id=job.user_id)
+            follow = _follow(job, creds)
             follow_code = follow.get("code", "ERROR")
             if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
                 job.followed = True
@@ -2220,7 +2246,7 @@ def _send_one(
         # X sometimes only allows a DM once you follow. Follow *only* then, and
         # retry the DM once - never follow when the DM already works.
         if result.get("code") == "DM_LOCKED" and settings_row.follow_when_needed:
-            follow = executor.run_script("follow", {"username": job.author_handle}, creds=creds, user_id=job.user_id)
+            follow = _follow(job, creds)
             follow_code = follow.get("code", "ERROR")
             if follow.get("success") or follow_code == "ALREADY_FOLLOWING":
                 job.followed = True
