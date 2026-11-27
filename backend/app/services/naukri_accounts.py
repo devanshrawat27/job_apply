@@ -18,7 +18,7 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import NaukriAccount
+from app.models import NaukriAccount, Profile
 from app.security import decrypt_credentials, encrypt_credentials
 from app.services import executor
 
@@ -358,4 +358,57 @@ def ensure_window(url: str) -> str | None:
     if not result.get("ok"):
         return None
     return cdp_endpoint()
+
+
+def refresh_resume(
+    db: Session, account: NaukriAccount | None, profile: Profile | None
+) -> dict:
+    """Re-upload the Naukri resume with today's date in its name.
+
+    This only changes the resume file name and its "Uploaded on" date. The
+    profile summary and every other profile field stay untouched.
+    """
+    if account is None:
+        return {"ok": False, "code": "NO_ACCOUNT", "error": "Connect Naukri first"}
+    if profile is None:
+        return {"ok": False, "code": "NO_PROFILE", "error": "Complete your profile first"}
+
+    url = "https://www.naukri.com/mnjuser/profile"
+    endpoint = ensure_window(url)
+    out_dir = Path(__file__).resolve().parents[2] / "data" / "naukri_resumes"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    result = executor.run_script(
+        "naukri_resume_refresh",
+        {
+            "url": url,
+            "name": profile.full_name or "Resume",
+            "role": "Software Engineer",
+            "out_dir": str(out_dir),
+        },
+        naukri_cookies=cookies(account),
+        user_id=profile.user_id,
+        timeout=180,
+        browser_cdp_endpoint=endpoint,
+    )
+    data = result.get("data") or {}
+    returned = data.get("cookies")
+    if isinstance(returned, dict) and returned:
+        account.session_ciphertext = encrypt_credentials(returned)
+        db.commit()
+
+    if not result.get("success") or not data.get("ok"):
+        return {
+            "ok": False,
+            "code": str(data.get("code") or result.get("code") or "ERROR"),
+            "error": str(
+                data.get("error") or result.get("error") or "Could not refresh the resume"
+            ),
+        }
+    return {
+        "ok": True,
+        "filename": str(data.get("filename") or ""),
+        "uploaded_on": str(data.get("uploaded_on") or ""),
+        "skipped": bool(data.get("skipped")),
+        "message": str(data.get("message") or ""),
+    }
 

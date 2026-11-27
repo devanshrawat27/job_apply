@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BriefcaseIcon, CheckCircle2Icon, ExternalLinkIcon, Loader2Icon, Trash2Icon } from 'lucide-react'
+import { BriefcaseIcon, CheckCircle2Icon, ExternalLinkIcon, Loader2Icon, RefreshCwIcon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -17,6 +17,7 @@ export function NaukriCard() {
   const [loading, setLoading] = useState(true)
   const [replacing, setReplacing] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
 
@@ -74,6 +75,24 @@ export function NaukriCard() {
     }
   }
 
+  async function refreshResume() {
+    setRefreshing(true)
+    try {
+      const result = await api.naukriRefreshResume()
+      if (result.skipped) {
+        toast.info('Resume already has today’s date', { description: result.filename })
+      } else {
+        toast.success('Resume refreshed with today’s date', {
+          description: `${result.filename}${result.uploaded_on ? ` · ${result.uploaded_on}` : ''}`,
+        })
+      }
+    } catch (cause) {
+      toast.error((cause as Error).message)
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   const showForm = !account || replacing
 
   return (
@@ -120,10 +139,23 @@ export function NaukriCard() {
                 {account.email || 'Signed in through Chrome'} · jobs land in Apply links for review
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button variant="outline" size="sm" onClick={() => void openWindow()}>
                 <ExternalLinkIcon />
                 Open Naukri
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={refreshing}
+                onClick={() => void refreshResume()}
+              >
+                {refreshing ? (
+                  <Loader2Icon className="animate-spin" />
+                ) : (
+                  <RefreshCwIcon />
+                )}
+                Refresh resume
               </Button>
               <Button variant="outline" size="sm" onClick={() => setReplacing(true)}>
                 Reconnect
@@ -134,6 +166,13 @@ export function NaukriCard() {
               </Button>
             </div>
           </div>
+        ) : null}
+
+        {account && !replacing ? (
+          <p className="text-[11px] text-muted-foreground">
+            Refresh resume adds today’s date to the resume file name and uploads it again. Your
+            profile summary and other details are not changed.
+          </p>
         ) : null}
 
         {account?.status === 'blocked' && !replacing ? (

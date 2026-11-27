@@ -13,6 +13,7 @@ import type {
   LLMKey,
   NaukriAccount,
   NaukriPreview,
+  NaukriResumeRefresh,
   OutreachItem,
   PeopleFinderResult,
   Profile,
@@ -197,6 +198,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url: url || '' }),
     }),
+  naukriRefreshResume: () =>
+    mutate<NaukriResumeRefresh>('/naukri/refresh-resume', { method: 'POST' }),
   connectNaukri: (email: string) =>
     mutate<NaukriAccount>('/naukri/connect', {
       method: 'POST',

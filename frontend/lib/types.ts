@@ -86,6 +86,14 @@ export interface NaukriPreview {
   error: string
 }
 
+export interface NaukriResumeRefresh {
+  ok: boolean
+  filename: string
+  uploaded_on: string
+  skipped: boolean
+  message: string
+}
+
 export interface NaukriAccount {
   id: number
   email: string

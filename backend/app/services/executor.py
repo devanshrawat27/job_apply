@@ -43,6 +43,7 @@ SCRIPTS: dict[str, str] = {
     "naukri_detail": "scripts/naukriDetail.js",
     "naukri_apply": "scripts/naukriApply.js",
     "naukri_open": "scripts/naukriOpen.js",
+    "naukri_resume_refresh": "scripts/naukriResumeRefresh.js",
     "chatgpt_ask": "scripts/chatgptAsk.js",
     "chatgpt_login": "scripts/chatgptLogin.js",
     "chatgpt_whoami": "scripts/chatgptWhoami.js",
