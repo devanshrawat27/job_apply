@@ -177,6 +177,67 @@ def test_optimizer_retires_a_dead_pinned_keyword(db):
     assert good.status == "active"
 
 
+def test_optimizer_revives_a_retired_keyword_that_still_brings_posts(db):
+    now = datetime.now(timezone.utc)
+    row = SearchQuery(
+        keyword="hiring alert",
+        status="retired",
+        pinned=True,
+        uses=120,
+        posts_seen=206,
+        posts_relevant=15,
+        score=0.07,
+    )
+    db.add(row)
+    db.commit()
+    for index in range(3):
+        db.add(
+            JobPost(
+                post_id=f"revive-{index}",
+                query_text="hiring alert",
+                relevance=80,
+                status="rejected",
+                discovered_at=now,
+            )
+        )
+    db.commit()
+
+    query_lab.optimize(db)
+    db.refresh(row)
+    assert row.status == "active"
+    assert row.pinned is False
+
+
+def test_record_results_keeps_a_keyword_with_recent_posts(db):
+    now = datetime.now(timezone.utc)
+    row = SearchQuery(
+        keyword="we are hiring",
+        status="active",
+        uses=120,
+        posts_seen=200,
+        posts_relevant=10,
+        score=0.05,
+    )
+    db.add(row)
+    db.commit()
+    db.add(
+        JobPost(
+            post_id="keep-1",
+            query_text="we are hiring",
+            relevance=80,
+            status="rejected",
+            discovered_at=now,
+        )
+    )
+    db.commit()
+
+    query_lab.record_results(
+        db, [row], {"we are hiring": {"seen": 10, "relevant": 0}}
+    )
+    db.refresh(row)
+    assert row.status != "retired"
+
+
 def test_selection_prefers_a_keyword_with_recent_relevant_jobs(db):
     now = datetime.now(timezone.utc)
     db.add_all(

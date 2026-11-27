@@ -278,7 +278,7 @@ def recent_yield(
 
 
 def optimize(db: Session, user_id: int | None = None) -> int:
-    """Retire keywords that stopped producing, activate the ones that work.
+    """Retire dead keywords, revive productive ones, keep the winners active.
 
     Runs from every scan pick. Pinned keywords are protected while they still
     produce something; a clearly dead pinned keyword is unpinned and retired so
@@ -289,7 +289,7 @@ def optimize(db: Session, user_id: int | None = None) -> int:
     if user_id is not None:
         stmt = stmt.where(SearchQuery.user_id == user_id)
     rows = list(db.scalars(stmt).all())
-    recent = recent_yield(db, user_id, days=3)
+    recent = recent_yield(db, user_id, days=7)
     changed = 0
 
     def _aware(value: datetime | None) -> datetime | None:
@@ -299,6 +299,14 @@ def optimize(db: Session, user_id: int | None = None) -> int:
 
     for row in rows:
         if row.status == "retired":
+            # A keyword that was retired on its lifetime average can still be
+            # bringing recent posts. Bring it back into the pool instead of
+            # losing a productive broad term forever.
+            if int(recent.get(row.keyword.lower(), {}).get("relevant") or 0) >= 2:
+                row.status = "active"
+                row.pinned = False
+                changed += 1
+                logger.info("revived keyword %r: recent posts found", row.keyword)
             continue
         seen = int(row.posts_seen or 0)
         relevant = int(row.posts_relevant or 0)
@@ -385,7 +393,7 @@ def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -
             _add(db, rows, known, keyword, user_id, source="curated")
     db.flush()
 
-    recent = recent_yield(db, user_id, days=3)
+    recent = recent_yield(db, user_id, days=7)
 
     def priority(row: SearchQuery) -> float:
         stats = recent.get(row.keyword.lower(), {})
@@ -524,6 +532,7 @@ def bump_reply(db: Session, keyword: str, user_id: int | None = None) -> None:
 
 def record_results(db: Session, keywords: list[SearchQuery], per_keyword: dict[str, dict]) -> None:
     """Update the scoreboard. Good keywords stay, bad ones are removed."""
+    recent = recent_yield(db, keywords[0].user_id if keywords else None, days=7)
     for row in keywords:
         stats = per_keyword.get(row.keyword, {"seen": 0, "relevant": 0})
         seen = int(stats.get("seen") or 0)
@@ -538,6 +547,9 @@ def record_results(db: Session, keywords: list[SearchQuery], per_keyword: dict[s
         row.uses = row.uses or 1
 
         row.score = _score(row)
+        recent_relevant = int(
+            recent.get(row.keyword.lower(), {}).get("relevant") or 0
+        )
 
         if row.uses >= 2 and row.score >= ACTIVATE_SCORE:
             row.status = "active"
@@ -545,6 +557,7 @@ def record_results(db: Session, keywords: list[SearchQuery], per_keyword: dict[s
             row.uses >= 3
             and row.score < RETIRE_SCORE
             and not bool(getattr(row, "pinned", False))
+            and recent_relevant == 0
         ):
             logger.info("retiring weak keyword %r (score %.2f)", row.keyword, row.score)
             # Keep the row as a tombstone: deleting it would let the curated
