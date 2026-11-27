@@ -145,6 +145,35 @@ async function run() {
         ? applyButton
         : await visibleButton(page, [/^apply$/i, /^apply now$/i, /^apply for this job$/i])
     if (!button) {
+      // A direct job stops showing Apply after it has been submitted. Check the
+      // applied history by Naukri job id before calling this a failure.
+      const jobId = (URL.match(/-(\d{6,})\/?$/) || [])[1] || ''
+      let inHistory = false
+      if (jobId) {
+        await page
+          .goto('https://www.naukri.com/myapply/historypage', {
+            waitUntil: 'domcontentloaded',
+            timeout: 45000,
+          })
+          .catch(() => {})
+        await page.waitForTimeout(6000)
+        inHistory = await page
+          .evaluate((id) => {
+            const links = [...document.querySelectorAll('a[href]')].map(
+              (item) => item.getAttribute('href') || '',
+            )
+            const text = document.body?.innerText || ''
+            return links.some((href) => href.includes(id)) || text.includes(id)
+          }, jobId)
+          .catch(() => false)
+      }
+      if (inHistory) {
+        return reportOk({
+          applied: true,
+          code: 'ALREADY_APPLIED',
+          message: 'Naukri applied history shows this application.',
+        })
+      }
       return reportOk({
         applied: false,
         code: 'NO_APPLY',
