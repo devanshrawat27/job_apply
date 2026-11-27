@@ -9,6 +9,12 @@ const LAUNCH_ARGS = [
   '--no-first-run',
   '--no-default-browser-check',
 ]
+// Naukri's edge rejects headless Chromium, but the user still wants the window
+// out of the way. A real Chrome placed far off-screen renders normally without
+// covering the desktop.
+if (process.env.STEALTH_OFFSCREEN === '1') {
+  LAUNCH_ARGS.push('--window-position=-32000,-32000', '--window-size=1366,850')
+}
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +

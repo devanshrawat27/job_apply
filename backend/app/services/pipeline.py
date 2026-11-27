@@ -25,6 +25,7 @@ from app.agents import (
     linkedin_keywords,
     linkedin_post_filter,
     linkedin_post_keywords,
+    naukri,
     query_lab,
     spam as spam_guard,
 )
@@ -52,6 +53,7 @@ from app.services import (
     linkedin_guest,
     linkedin_posts,
     mailer,
+    naukri_accounts,
     resume_pick,
     x_dm_api,
 )
@@ -1389,6 +1391,234 @@ def scan_linkedin(
         return run
 
 
+NAUKRI_MAX_AGE_HOURS = 48
+
+
+def expire_stale_naukri(
+    db: Session, user_id: int | None = None, max_age_hours: int = NAUKRI_MAX_AGE_HOURS
+) -> int:
+    """Close Naukri listings that are older than the freshness window."""
+    cutoff = _now() - timedelta(hours=max_age_hours)
+    stmt = select(JobPost).where(
+        JobPost.source == "naukri",
+        JobPost.status.in_(("new", "pending_approval", "queued")),
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+    expired = 0
+    for job in db.scalars(stmt).all():
+        posted = _as_utc(job.posted_at) or _as_utc(job.discovered_at)
+        if posted is not None and posted >= cutoff:
+            continue
+        job.status = "rejected"
+        job.decision_reason = f"older than {max_age_hours}h - Naukri jobs fill up fast"
+        job.reply_text = ""
+        job.dm_text = ""
+        _log(job, job.decision_reason)
+        expired += 1
+    if expired:
+        db.commit()
+    return expired
+
+
+def scan_naukri(
+    db: Session,
+    *,
+    manual: bool = False,
+    run: Run | None = None,
+    user_id: int | None = None,
+) -> Run:
+    """Find fresh Naukri jobs and add them to Apply links for review.
+
+    Naukri is searched in a real Chrome window (its edge blocks headless
+    Chromium), hidden off-screen. Nothing is applied automatically: every job
+    lands as an apply link so the human can review and submit.
+    """
+    if run is None:
+        run = Run(kind="scan", status="running", user_id=user_id)
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+    stats: dict = {
+        "source": "naukri",
+        "queries": 0,
+        "keywords": [],
+        "posts_seen": 0,
+        "posts_new": 0,
+        "duplicates": 0,
+        "relevant": 0,
+        "rejected": 0,
+        "rejected_reasons": {},
+        "errors": [],
+    }
+
+    def reject(reason: str) -> None:
+        stats["rejected"] += 1
+        key = " ".join((reason or "not a fit").split())[:90]
+        reasons = stats["rejected_reasons"]
+        reasons[key] = int(reasons.get(key, 0)) + 1
+
+    try:
+        profile = get_profile(db, user_id)
+        if profile is None:
+            run.status = "skipped"
+            stats["errors"].append("no profile - finish onboarding first")
+            run.stats = stats
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        account = naukri_accounts.active_account(db, user_id)
+        # A login is not required to read the public result cards; it is only
+        # used when the human applies. Scan as a guest, and attach the session
+        # when it exists.
+        stats["connected"] = account is not None
+
+        terms = naukri.search_terms(profile, limit=2)
+        stats["queries"] = len(terms)
+        stats["keywords"] = terms
+        if not terms:
+            run.status = "completed"
+            stats["errors"].append("no search terms from the profile")
+            run.stats = stats
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        result = executor.run_script(
+            "naukri_search",
+            {"queries": ",".join(terms), "limit": 20},
+            user_id=user_id,
+            naukri_cookies=naukri_accounts.cookies(account),
+            timeout=330,
+        )
+        if not result.get("success"):
+            stats["errors"].append(
+                f"Naukri search failed: {result.get('error') or result.get('code')}"
+            )
+            if result.get("code") == "NAUKRI_BLOCKED" and account is not None:
+                naukri_accounts.mark_status(db, account, "blocked")
+            run.status = "completed"
+            run.stats = stats
+            run.finished_at = _now()
+            db.commit()
+            db.refresh(run)
+            return run
+
+        if account is not None and account.status != "connected":
+            naukri_accounts.mark_status(db, account, "connected")
+
+        jobs = (result.get("data") or {}).get("jobs") or []
+        stats["posts_seen"] = len(jobs)
+
+        existing_stmt = select(JobPost.post_id).where(JobPost.source == "naukri")
+        hashes_stmt = select(JobPost.content_hash).where(JobPost.source == "naukri")
+        if user_id is not None:
+            existing_stmt = existing_stmt.where(JobPost.user_id == user_id)
+            hashes_stmt = hashes_stmt.where(JobPost.user_id == user_id)
+        existing = set(db.scalars(existing_stmt).all())
+        existing_hashes = {value for value in db.scalars(hashes_stmt).all() if value}
+
+        created: list[JobPost] = []
+        now = _now()
+        for card in jobs:
+            job_id = str(card.get("id") or "").strip()
+            title = str(card.get("title") or "").strip()
+            company = str(card.get("company") or "").strip()
+            if not job_id or not title:
+                continue
+            post_id = f"naukri:{job_id}"
+            if post_id in existing:
+                stats["duplicates"] += 1
+                continue
+
+            verdict = naukri.assess(profile, card)
+            if not verdict["ok"]:
+                reject(str(verdict["reason"]))
+                continue
+
+            posted_at = naukri.posted_datetime(card.get("posted"), now=now)
+            if posted_at is not None and now - posted_at > timedelta(hours=NAUKRI_MAX_AGE_HOURS):
+                reject("older than 24 hours")
+                continue
+
+            fingerprint = discovery.content_fingerprint(
+                f"{company} {verdict['title']} {verdict['location']}"
+            )
+            if fingerprint and fingerprint in existing_hashes:
+                stats["duplicates"] += 1
+                continue
+
+            url = str(card.get("url") or "").strip()
+            if not url:
+                reject("listing has no apply link")
+                continue
+
+            skills = [str(item).strip() for item in (card.get("skills") or []) if str(item).strip()]
+            content = (
+                f"{verdict['title']} at {company}\n"
+                f"{verdict['location']} | {card.get('experience') or ''}\n\n"
+                f"{card.get('snippet') or ''}\n"
+                + (f"\nSkills: {', '.join(skills[:12])}" if skills else "")
+            ).strip()[:12000]
+
+            job = JobPost(
+                user_id=user_id,
+                post_id=post_id,
+                source="naukri",
+                source_kind="job",
+                source_job_id=job_id,
+                post_url=url[:400],
+                author_handle=_company_handle("", company),
+                author_name=company[:200],
+                content=content,
+                content_hash=fingerprint,
+                posted_at=posted_at,
+                query_text=str(card.get("query") or terms[0])[:200],
+                status="new",
+                relevance=int(verdict["relevance"]),
+                company=company[:200],
+                role=verdict["title"][:200],
+                job_location=verdict["location"][:200],
+                apply_method="link",
+                outreach_method="link",
+                apply_url=url[:500],
+                author_type="company",
+                required_experience_months=int(verdict["required_experience_months"] or 0),
+                reason=str(verdict["reason"])[:200],
+                decision_reason="Naukri job - review and apply on Naukri",
+                confidence=0.0,
+            )
+            db.add(job)
+            created.append(job)
+            existing.add(post_id)
+            if fingerprint:
+                existing_hashes.add(fingerprint)
+            stats["relevant"] += 1
+            _log(job, "found on Naukri - added to Apply links for review")
+
+        db.commit()
+        stats["posts_new"] = len(created)
+        run.status = "completed"
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+        db.rollback()
+        logger.exception("Naukri scan failed")
+        run.status = "failed"
+        run.error = str(exc)
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+
 def _record_keywords(
     db: Session,
     keywords: list,
@@ -2705,6 +2935,13 @@ def check_apply_links(
     profile = get_profile(db, user_id)
     max_experience = discovery.experience_limit(profile) if profile is not None else None
     for job in db.scalars(stmt).all():
+        # Naukri serves its job pages from JavaScript; a plain HTTP fetch sees an
+        # empty shell and would wrongly mark every listing dead. The browser
+        # already opened these cards, and the freshness pass closes old ones.
+        if (job.source or "").lower() == "naukri":
+            job.link_checked_at = _now()
+            db.commit()
+            continue
         ok, reason = link_check.check(
             job.apply_url, max_experience_months=max_experience
         )

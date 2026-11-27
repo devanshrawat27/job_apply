@@ -18,6 +18,7 @@ import { toast } from 'sonner'
 import { ConnectXForm } from '@/components/accounts/connect-x'
 import { ConnectEmail } from '@/components/accounts/connect-email'
 import { LinkedInCard } from '@/components/accounts/linkedin-card'
+import { NaukriCard } from '@/components/accounts/naukri-card'
 import { PageHeader } from '@/components/page-header'
 import { ChipInput, Field } from '@/components/profile/fields'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -1220,6 +1221,8 @@ export default function SettingsPage() {
       </Card>
 
       <LinkedInCard />
+
+      <NaukriCard />
 
       <div className="flex justify-end">
         <Button onClick={() => void save()} disabled={saving}>

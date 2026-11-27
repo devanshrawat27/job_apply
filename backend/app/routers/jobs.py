@@ -80,7 +80,7 @@ def list_jobs(
             raise HTTPException(status_code=400, detail=f"unknown status '{status}'")
         stmt = stmt.where(JobPost.status == status)
     if source and source != "all":
-        if source not in ("x", "linkedin"):
+        if source not in ("x", "linkedin", "naukri"):
             raise HTTPException(status_code=400, detail=f"unknown source '{source}'")
         stmt = stmt.where(JobPost.source == source)
     if has_link:

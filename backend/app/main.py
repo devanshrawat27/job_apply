@@ -23,6 +23,7 @@ from app.routers import (
     keywords,
     linkedin,
     llm,
+    naukri,
     outreach,
     profile,
     runs,
@@ -102,6 +103,7 @@ protected = APIRouter(dependencies=[Depends(get_current_user)])
 protected.include_router(profile.router)
 protected.include_router(accounts.router)
 protected.include_router(linkedin.router)
+protected.include_router(naukri.router)
 protected.include_router(settings_router.router)
 protected.include_router(jobs.router)
 protected.include_router(keywords.router)

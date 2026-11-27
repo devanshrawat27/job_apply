@@ -4,22 +4,24 @@ import { LayoutGridIcon } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 
-export type Platform = 'all' | 'x' | 'linkedin'
+export type Platform = 'all' | 'x' | 'linkedin' | 'naukri'
 
 const OPTIONS: { key: Platform; label: string; short: string }[] = [
   { key: 'all', label: 'All platforms', short: 'All' },
   { key: 'x', label: 'X', short: 'X' },
   { key: 'linkedin', label: 'LinkedIn', short: 'LinkedIn' },
+  { key: 'naukri', label: 'Naukri', short: 'Naukri' },
 ]
 
 function activeButton(platform: Platform): string {
   if (platform === 'linkedin') return 'bg-[#0a66c2] text-white shadow-sm'
+  if (platform === 'naukri') return 'bg-[#ff7555] text-white shadow-sm'
   if (platform === 'x') return 'bg-foreground text-background shadow-sm'
   return 'bg-foreground/10 text-foreground shadow-sm ring-1 ring-foreground/15'
 }
 
 function activeCount(platform: Platform): string {
-  if (platform === 'linkedin') return 'bg-white/20 text-white'
+  if (platform === 'linkedin' || platform === 'naukri') return 'bg-white/20 text-white'
   if (platform === 'x') return 'bg-background/20 text-background'
   return 'bg-muted text-foreground'
 }
@@ -41,6 +43,18 @@ function PlatformMark({ platform, active }: { platform: Platform; active: boolea
         )}
       >
         in
+      </span>
+    )
+  }
+  if (platform === 'naukri') {
+    return (
+      <span
+        className={cn(
+          'grid size-4 place-items-center rounded-[4px] text-[9px] font-bold leading-none',
+          active ? 'bg-white text-[#ff7555]' : 'bg-[#ff7555] text-white',
+        )}
+      >
+        N
       </span>
     )
   }
@@ -73,7 +87,7 @@ export function PlatformSwitch({
           Show jobs from one platform at a time.
         </p>
       </div>
-      <div className="grid grid-cols-3 gap-1 rounded-lg bg-muted/60 p-1">
+      <div className="grid grid-cols-4 gap-1 rounded-lg bg-muted/60 p-1">
         {OPTIONS.map((option) => {
           const active = value === option.key
           return (

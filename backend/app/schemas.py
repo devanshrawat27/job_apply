@@ -99,6 +99,23 @@ class LinkedInConnectIn(BaseModel):
     verification_code: str | None = None
 
 
+class NaukriConnectIn(BaseModel):
+    email: str = ""
+
+
+class NaukriAccountOut(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    status: str
+    has_session: bool = True
+    last_checked_at: datetime | None = None
+
+    @field_serializer("last_checked_at")
+    def _serialize_utc(self, value: datetime | None, _info):
+        return iso_utc(value)
+
+
 class LinkedInAccountOut(BaseModel):
     id: int
     email: str

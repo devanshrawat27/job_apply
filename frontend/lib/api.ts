@@ -11,6 +11,7 @@ import type {
   KeywordsSnapshot,
   LinkedInAccount,
   LLMKey,
+  NaukriAccount,
   OutreachItem,
   PeopleFinderResult,
   Profile,
@@ -189,6 +190,14 @@ export const api = {
     }),
   disconnectLinkedIn: (id: number) =>
     mutate<{ deleted: boolean }>(`/linkedin/${id}`, { method: 'DELETE' }),
+  naukriAccount: () => request<NaukriAccount | null>('/naukri'),
+  connectNaukri: (email: string) =>
+    mutate<NaukriAccount>('/naukri/connect', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  disconnectNaukri: (id: number) =>
+    mutate<{ deleted: boolean }>(`/naukri/${id}`, { method: 'DELETE' }),
   setDmPasscode: (id: number, passcode: string | null) =>
     request<Account>(`/accounts/${id}/dm-passcode`, {
       method: 'PUT',
@@ -211,7 +220,7 @@ export const api = {
   jobs: (params: {
     status?: string
     q?: string
-    source?: 'x' | 'linkedin'
+    source?: 'x' | 'linkedin' | 'naukri'
     has_link?: boolean
     open_only?: boolean
     sort?: string

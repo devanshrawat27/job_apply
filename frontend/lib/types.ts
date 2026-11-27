@@ -65,6 +65,15 @@ export interface Account {
   dm_status?: 'ok' | 'unverified' | 'blocked' | string
 }
 
+export interface NaukriAccount {
+  id: number
+  email: string
+  display_name: string
+  status: string
+  has_session: boolean
+  last_checked_at: string | null
+}
+
 export interface LinkedInAccount {
   id: number
   email: string
@@ -103,7 +112,7 @@ export interface AgentSettings {
 export interface Job {
   id: number
   post_id: string
-  source: 'x' | 'linkedin'
+  source: 'x' | 'linkedin' | 'naukri'
   source_job_id: string
   source_kind: 'job' | 'post'
   post_url: string

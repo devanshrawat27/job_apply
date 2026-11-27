@@ -43,7 +43,7 @@ export default function ApplyLinksPage() {
     <main className="flex w-full flex-col gap-5">
       <PageHeader
         title="Apply links"
-        description="Direct apply links - founders and individual hirers are ranked first because they usually reply. LinkedIn jobs leave this list after 2 hours."
+        description="Direct apply links from X, LinkedIn and Naukri. Review each one, then apply. LinkedIn jobs leave after the freshness window; Naukri jobs after 24 hours."
         actions={
           <>
             <Button

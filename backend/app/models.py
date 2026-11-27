@@ -139,6 +139,27 @@ class LinkedInAccount(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class NaukriAccount(Base):
+    """A connected Naukri.com session, used for Indian job discovery/apply.
+
+    The user signs in once in JobPilot's own Chrome window; only the resulting
+    cookies are stored, encrypted. No password is kept.
+    """
+
+    __tablename__ = "naukri_account"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    email: Mapped[str] = mapped_column(String(200), default="")
+    display_name: Mapped[str] = mapped_column(String(200), default="")
+    session_ciphertext: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(40), default="connected")
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Resume(Base):
     """One uploaded resume. The agent picks the most relevant one per post."""
 

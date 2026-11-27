@@ -87,13 +87,17 @@ export function JobCard({
 
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
   const isLinkedIn = job.source === 'linkedin'
+  const isNaukri = job.source === 'naukri'
+  const isCompanyBoard = isLinkedIn || isNaukri
   const isPost = job.source_kind === 'post'
   const method = METHOD[job.outreach_method] ?? METHOD.dm
   const methodLabel = isLinkedIn
     ? isPost
       ? 'open the post'
       : 'apply on LinkedIn'
-    : method.label
+    : isNaukri
+      ? 'apply on Naukri'
+      : method.label
   const MethodIcon = method.icon
   const canAct = !['sent', 'sending'].includes(job.status)
   const needsYou = job.status === 'pending_approval'
@@ -184,11 +188,15 @@ export function JobCard({
           <div className="min-w-0">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
               <span className="text-sm font-medium">
-                {isLinkedIn ? job.company || job.author_name : job.author_name || job.author_handle}
+                {isCompanyBoard ? job.company || job.author_name : job.author_name || job.author_handle}
               </span>
               {isLinkedIn ? (
                 <span className="rounded bg-sky-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-sky-700 dark:text-sky-400">
                   {isPost ? 'in post' : 'in job'}
+                </span>
+              ) : isNaukri ? (
+                <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-orange-700 dark:text-orange-400">
+                  Naukri
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">@{job.author_handle}</span>
@@ -199,7 +207,7 @@ export function JobCard({
             </div>
 
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              {job.company && !isLinkedIn ? (
+              {job.company && !isCompanyBoard ? (
                 <span className="font-medium text-foreground">{job.company}</span>
               ) : null}
               {job.role ? <span>{job.role}</span> : null}

@@ -81,7 +81,7 @@ export function JobList({
   // Approvals instead of resetting on every page.
   useEffect(() => {
     const saved = window.localStorage.getItem(PLATFORM_KEY)
-    if (saved === 'x' || saved === 'linkedin' || saved === 'all') setSource(saved)
+    if (saved === 'x' || saved === 'linkedin' || saved === 'naukri' || saved === 'all') setSource(saved)
   }, [])
 
   function changePlatform(next: Platform) {
@@ -149,7 +149,9 @@ export function JobList({
   const counts: Record<Platform, number> = {
     x: baseCounts?.x ?? 0,
     linkedin: baseCounts?.linkedin ?? 0,
-    all: (baseCounts?.x ?? 0) + (baseCounts?.linkedin ?? 0),
+    naukri: baseCounts?.naukri ?? 0,
+    all:
+      (baseCounts?.x ?? 0) + (baseCounts?.linkedin ?? 0) + (baseCounts?.naukri ?? 0),
   }
 
   return (

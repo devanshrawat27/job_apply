@@ -30,6 +30,7 @@ from app.services import (
     limits,
     linkedin_accounts,
     linkedin_posts,
+    naukri_accounts,
     pipeline,
     x_dm_api,
 )
@@ -76,6 +77,10 @@ LINKEDIN_SCAN_MINUTES = 60
 # LinkedIn posts need the member's own session. Search is slower and heavier
 # than the jobs board, so it gets its own timer.
 LINKEDIN_POSTS_MINUTES = 90
+
+# Naukri runs in a real Chrome window because its edge blocks headless. Keep
+# the cadence gentle so the account is not challenged.
+NAUKRI_SCAN_MINUTES = 120
 LINKEDIN_SESSION_MINUTES = 30
 
 # While idle, like/follow a few hiring posts this often so X fills the feed
@@ -112,6 +117,7 @@ class AgentLoop(threading.Thread):
         # Last time LinkedIn posts were searched, and last session probe.
         self._last_linkedin_posts: dict[int | None, datetime] = {}
         self._last_linkedin_session: dict[int | None, datetime] = {}
+        self._last_naukri: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -462,6 +468,31 @@ class AgentLoop(threading.Thread):
                             "LinkedIn post scan failed for user %s", user_id, exc_info=True
                         )
                         db.rollback()
+
+        # 2f. Naukri.com. Public search cards need no login; a real Chrome runs
+        # hidden off-screen because Naukri blocks headless. Every listing lands
+        # in Apply links for human review.
+        last_naukri = self._last_naukri.get(user_id)
+        naukri_due = last_naukri is None or now - last_naukri >= timedelta(
+            minutes=NAUKRI_SCAN_MINUTES
+        )
+        if naukri_due:
+            self._last_naukri[user_id] = now
+            try:
+                expired_nk = pipeline.expire_stale_naukri(db, user_id)
+                if expired_nk:
+                    logger.info("user %s closed %s stale Naukri jobs", user_id, expired_nk)
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("Naukri freshness pass failed for user %s", user_id, exc_info=True)
+                db.rollback()
+            try:
+                nk_run = pipeline.scan_naukri(db, user_id=user_id)
+                logger.info(
+                    "user %s Naukri scan: %s %s", user_id, nk_run.status, nk_run.stats
+                )
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("Naukri scan failed for user %s", user_id, exc_info=True)
+                db.rollback()
 
         # 3. Scanning runs on its own schedule and is never starved by the queue.
         # Search itself needs X, so it stops while the session is dead; emails

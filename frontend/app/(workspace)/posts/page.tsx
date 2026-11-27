@@ -35,7 +35,7 @@ export default function PostsPage() {
     <main className="flex w-full flex-col gap-5">
       <PageHeader
         title="Found jobs"
-        description="Every hiring post and job the agent read on X and LinkedIn, newest first."
+        description="Every hiring post and job the agent read on X, LinkedIn and Naukri, newest first."
         actions={
           <Button size="sm" disabled={scanning} onClick={() => void scan()}>
             {scanning ? <Loader2Icon className="animate-spin" /> : <SearchIcon />}
