@@ -32,6 +32,14 @@ import { api } from '@/lib/api'
 import type { Job, NaukriPreview } from '@/lib/types'
 import { cn, cleanPostText, formatExperience, timeAgo } from '@/lib/utils'
 
+function questionOptions(text: string): string[] {
+  const raw = text || ''
+  const years = Array.from(new Set(raw.match(/\b20\d{2}\b/g) || []))
+  if (years.length >= 2 && /graduat|passout|batch|year of/i.test(raw)) return years
+  if (/\byes\b[\s/,]*\bno\b|\bno\b[\s/,]*\byes\b/i.test(raw)) return ['Yes', 'No']
+  return []
+}
+
 const STATUS: Record<
   string,
   { label: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' | 'success' | 'warning' | 'info' }
@@ -260,11 +268,13 @@ export function JobCard({
     Boolean(naukriPreview) &&
     previewYears.length > 0 &&
     /graduat|passout|batch|year of/i.test(naukriPreview?.questions || '')
+  const previewOptions = questionOptions(naukriPreview?.questions || '')
 
   const cardQuestion = job.last_error || ''
   const cardYears = Array.from(new Set(cardQuestion.match(/\b20\d{2}\b/g) || []))
   const cardAskYear =
     /graduat|passout|batch|year of/i.test(cardQuestion) && cardYears.length > 0
+  const cardOptions = questionOptions(cardQuestion)
   const naukriQuestionPending =
     /answer the questions|naukri asks/i.test(job.decision_reason || '') ||
     /kindly answer|what is your|questionnaire/i.test(cardQuestion)
@@ -294,16 +304,18 @@ export function JobCard({
           <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
             {job.last_error}
           </p>
-          {cardAskYear ? (
+          {cardOptions.length ? (
             <select
               value={cardAnswer}
               onChange={(event) => setCardAnswer(event.target.value)}
               className="mt-2 h-8 rounded-md border border-border bg-background px-2 text-xs"
             >
-              <option value="">Select your graduation year</option>
-              {cardYears.map((year) => (
-                <option key={year} value={year}>
-                  {year}
+              <option value="">
+                {cardAskYear ? 'Select your graduation year' : 'Select your answer'}
+              </option>
+              {cardOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
                 </option>
               ))}
             </select>
@@ -890,7 +902,7 @@ export function JobCard({
                 <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                   {naukriPreview.questions}
                 </p>
-                {askYear ? (
+                {previewOptions.length ? (
                   <label className="mt-2 flex flex-col gap-1 text-[11px] font-medium">
                     Your answer
                     <select
@@ -898,10 +910,12 @@ export function JobCard({
                       onChange={(event) => setNaukriAnswer(event.target.value)}
                       className="h-9 rounded-md border border-border bg-background px-2 text-xs"
                     >
-                      <option value="">Select your graduation year</option>
-                      {previewYears.map((year) => (
-                        <option key={year} value={year}>
-                          {year}
+                      <option value="">
+                        {askYear ? 'Select your graduation year' : 'Select your answer'}
+                      </option>
+                      {previewOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
                         </option>
                       ))}
                     </select>
