@@ -214,6 +214,44 @@ def send_now(
     return job
 
 
+@router.get("/{job_id}/naukri-preview")
+def naukri_preview(
+    job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)
+) -> dict:
+    """Values JobPilot knows for this Naukri application, for the review popup."""
+    job = _owned(db, job_id, user)
+    profile = pipeline.get_profile(db, job.user_id)
+    if profile is None:
+        raise HTTPException(status_code=400, detail="complete your profile first")
+    links = {
+        str(key): str(value)
+        for key, value in (profile.links or {}).items()
+        if str(value or "").strip()
+    }
+    error = (job.last_error or "").strip()
+    questions = error if ("question" in error.lower() or "answer" in error.lower()) else ""
+    return {
+        "job": {
+            "id": job.id,
+            "title": job.role or "",
+            "company": job.company or "",
+            "url": job.post_url or job.apply_url or "",
+        },
+        "profile": {
+            "name": profile.full_name or "",
+            "email": profile.email or "",
+            "phone": profile.phone or "",
+            "experience_months": int(profile.experience_months or 0),
+            "current_role": profile.current_role or "",
+            "graduation_year": int(profile.graduation_year or 0),
+            "resume": job.resume_label or profile.resume_filename or "Naukri saved resume",
+            "links": links,
+            "skills": [str(item) for item in (profile.skills or [])[:12]],
+        },
+        "questions": questions,
+    }
+
+
 @router.post("/{job_id}/naukri-apply", response_model=JobOut)
 def naukri_apply(
     job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)

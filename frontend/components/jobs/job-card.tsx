@@ -29,7 +29,7 @@ import { LinkedInPostSummary } from '@/components/jobs/linkedin-post-summary'
 import { PeopleFinder } from '@/components/jobs/people-finder'
 import { PostBody, isLongPost } from '@/components/jobs/post-body'
 import { api } from '@/lib/api'
-import type { Job } from '@/lib/types'
+import type { Job, NaukriPreview } from '@/lib/types'
 import { cn, cleanPostText, formatExperience, timeAgo } from '@/lib/utils'
 
 const STATUS: Record<
@@ -84,6 +84,7 @@ export function JobCard({
   const [expanded, setExpanded] = useState(false)
   const [showLogs, setShowLogs] = useState(false)
   const [error, setError] = useState('')
+  const [naukriPreview, setNaukriPreview] = useState<NaukriPreview | null>(null)
 
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
   const isLinkedIn = job.source === 'linkedin'
@@ -123,11 +124,25 @@ export function JobCard({
     }
   }
 
-  async function autoApplyNaukri() {
-    setBusy('naukri')
+  async function openNaukriPreview() {
+    setBusy('naukri-preview')
+    setError('')
+    try {
+      setNaukriPreview(await api.naukriPreview(job.id))
+    } catch (err) {
+      setError((err as Error).message)
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function confirmNaukriApply() {
+    setBusy('naukri-apply')
     setError('')
     try {
       const updated = await api.naukriApply(job.id)
+      setNaukriPreview(null)
       await onChange()
       if (updated.status === 'sent') {
         toast.success(
@@ -473,9 +488,13 @@ export function JobCard({
                 <Button
                   size="sm"
                   disabled={busy !== null}
-                  onClick={() => void autoApplyNaukri()}
+                  onClick={() => void openNaukriPreview()}
                 >
-                  {busy === 'naukri' ? <Loader2Icon className="animate-spin" /> : <ExternalLinkIcon />}
+                  {busy === 'naukri-preview' ? (
+                    <Loader2Icon className="animate-spin" />
+                  ) : (
+                    <ExternalLinkIcon />
+                  )}
                   Auto-apply on Naukri
                 </Button>
               ) : null}
@@ -693,6 +712,94 @@ export function JobCard({
           </div>
         ) : null}
       </div>
+      {naukriPreview ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => setNaukriPreview(null)}
+        >
+          <div
+            className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">Naukri application — review before applying</p>
+                <p className="text-xs text-muted-foreground">
+                  {naukriPreview.job.title} · {naukriPreview.job.company}
+                </p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                onClick={() => setNaukriPreview(null)}
+              >
+                <XIcon className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-1.5 text-xs">
+              {[
+                ['Name', naukriPreview.profile.name],
+                ['Email', naukriPreview.profile.email],
+                ['Phone', naukriPreview.profile.phone],
+                ['Current role', naukriPreview.profile.current_role],
+                [
+                  'Experience',
+                  `${Math.floor(naukriPreview.profile.experience_months / 12)}y ${
+                    naukriPreview.profile.experience_months % 12
+                  }m`,
+                ],
+                [
+                  'Graduation',
+                  naukriPreview.profile.graduation_year
+                    ? String(naukriPreview.profile.graduation_year)
+                    : '—',
+                ],
+                ['Resume', naukriPreview.profile.resume],
+                ['Skills', naukriPreview.profile.skills.join(', ') || '—'],
+                ...(Object.keys(naukriPreview.profile.links).length
+                  ? [['Links', Object.values(naukriPreview.profile.links).join(' · ')]]
+                  : []),
+              ].map(([label, value]) => (
+                <div key={label} className="flex gap-3">
+                  <span className="w-24 shrink-0 text-muted-foreground">{label}</span>
+                  <span className="min-w-0 break-words font-medium">{value || '—'}</span>
+                </div>
+              ))}
+            </div>
+
+            {naukriPreview.questions ? (
+              <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+                <p className="text-[11px] font-medium">Naukri asks</p>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                  {naukriPreview.questions}
+                </p>
+              </div>
+            ) : null}
+
+            <p className="mt-3 text-[11px] text-muted-foreground">
+              Naukri uses the profile and resume saved on Naukri. JobPilot does not edit those
+              values; this is what it knows.
+            </p>
+
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setNaukriPreview(null)}>
+                Cancel
+              </Button>
+              <Button size="sm" disabled={busy !== null} onClick={() => void confirmNaukriApply()}>
+                {busy === 'naukri-apply' ? (
+                  <Loader2Icon className="animate-spin" />
+                ) : (
+                  <ExternalLinkIcon />
+                )}
+                Confirm &amp; apply
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
     </article>
   )
 }

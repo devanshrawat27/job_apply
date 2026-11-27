@@ -65,6 +65,22 @@ export interface Account {
   dm_status?: 'ok' | 'unverified' | 'blocked' | string
 }
 
+export interface NaukriPreview {
+  job: { id: number; title: string; company: string; url: string }
+  profile: {
+    name: string
+    email: string
+    phone: string
+    experience_months: number
+    current_role: string
+    graduation_year: number
+    resume: string
+    links: Record<string, string>
+    skills: string[]
+  }
+  questions: string
+}
+
 export interface NaukriAccount {
   id: number
   email: string
