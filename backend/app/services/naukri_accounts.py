@@ -6,6 +6,11 @@ Chromium). Only the resulting cookies are stored; the password is never kept.
 
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -96,3 +101,42 @@ def mark_status(db: Session, account: NaukriAccount, status: str) -> None:
 def disconnect(db: Session, account: NaukriAccount) -> None:
     db.delete(account)
     db.commit()
+
+
+def open_window(url: str = "https://www.naukri.com/myapply/historypage") -> dict:
+    """Open the logged-in Naukri Chrome profile in a visible window."""
+    chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+    if not chrome.exists():
+        found = shutil.which("chrome")
+        if not found:
+            return {"ok": False, "error": "Chrome was not found on this machine"}
+        chrome = Path(found)
+
+    profile = Path(os.environ.get("APPDATA", "")) / "jobpilot" / "browser-profile-naukri"
+    if not profile.exists():
+        return {
+            "ok": False,
+            "error": "The Naukri Chrome profile does not exist yet - connect Naukri first",
+        }
+
+    flags = 0
+    if os.name == "nt":
+        flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
+            subprocess, "CREATE_NEW_PROCESS_GROUP", 0
+        )
+    try:
+        subprocess.Popen(
+            [
+                str(chrome),
+                f"--user-data-dir={profile}",
+                "--new-window",
+                "--window-position=120,60",
+                "--window-size=1280,900",
+                url,
+            ],
+            creationflags=flags,
+            close_fds=True,
+        )
+        return {"ok": True}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:200]}

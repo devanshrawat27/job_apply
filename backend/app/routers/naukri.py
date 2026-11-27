@@ -46,6 +46,18 @@ def connect(
     return _to_out(account)
 
 
+@router.post("/window")
+def open_window(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
+    """Bring the logged-in Naukri Chrome window on screen."""
+    account = naukri_accounts.active_account(db, _uid(user))
+    if account is None:
+        raise HTTPException(status_code=409, detail="Connect Naukri first")
+    result = naukri_accounts.open_window()
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("error") or "could not open Chrome")
+    return {"ok": True}
+
+
 @router.delete("/{account_id}")
 def disconnect(account_id: int, user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
     account = db.get(NaukriAccount, account_id)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { BriefcaseIcon, CheckCircle2Icon, Loader2Icon, Trash2Icon } from 'lucide-react'
+import { BriefcaseIcon, CheckCircle2Icon, ExternalLinkIcon, Loader2Icon, Trash2Icon } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -63,6 +63,17 @@ export function NaukriCard() {
     }
   }
 
+  async function openWindow() {
+    try {
+      await api.naukriWindow()
+      toast.success('Naukri window opened', {
+        description: 'Use it to see applied jobs or finish a question form.',
+      })
+    } catch (cause) {
+      toast.error((cause as Error).message)
+    }
+  }
+
   const showForm = !account || replacing
 
   return (
@@ -104,6 +115,10 @@ export function NaukriCard() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => void openWindow()}>
+                <ExternalLinkIcon />
+                Open Naukri
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setReplacing(true)}>
                 Reconnect
               </Button>
