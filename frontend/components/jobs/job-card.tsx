@@ -207,6 +207,15 @@ export function JobCard({
         </div>
       ) : null}
 
+      {isNaukri && needsYou && job.last_error ? (
+        <div className="border-b border-border bg-muted/20 px-4 py-2.5">
+          <p className="text-[11px] font-medium text-foreground">Naukri asks</p>
+          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+            {job.last_error}
+          </p>
+        </div>
+      ) : null}
+
       <div className="p-4">
         {/* header */}
         <div className="flex items-start justify-between gap-4">

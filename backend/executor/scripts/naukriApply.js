@@ -39,6 +39,19 @@ const bodyText = (page) =>
     .then((value) => value.replace(/\s+/g, ' ').trim())
     .catch(() => '')
 
+async function questionText(page, fallback) {
+  for (const selector of ['[role="dialog"]', '[class*="modal" i]', '[class*="chat" i]']) {
+    const locator = page.locator(selector).first()
+    const count = await locator.count().catch(() => 0)
+    if (!count) continue
+    const text = (await locator.innerText().catch(() => ''))
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text.length > 10) return text.slice(0, 1800)
+  }
+  return fallback.slice(0, 1800)
+}
+
 async function visibleButton(page, patterns) {
   const buttons = page.locator('button, [role="button"], a')
   const count = await buttons.count().catch(() => 0)
@@ -105,6 +118,7 @@ async function run() {
         applied: true,
         code: 'APPLIED',
         message: 'Naukri confirms the application.',
+        questions: await questionText(page, afterApply),
       })
     }
 
@@ -118,7 +132,7 @@ async function run() {
         applied: false,
         code: 'NEEDS_REVIEW',
         message: 'Naukri opened questions that need your answers.',
-        questions: afterApply.slice(0, 1500),
+        questions: await questionText(page, afterApply),
       })
     }
 

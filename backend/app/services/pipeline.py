@@ -2971,10 +2971,16 @@ def apply_naukri(db: Session, job: JobPost) -> dict:
         return {"ok": True, "code": "EXTERNAL", "applied": False, "job": job}
 
     # Questions, a passcode wall or a failed flow: keep it for the human.
+    questions = str(data.get("questions") or "").strip()
     job.status = "pending_approval"
-    job.decision_reason = f"Naukri: {message}"[:500]
-    job.last_error = message[:900]
-    _log(job, f"Naukri apply needs review: {message[:180]}")
+    if questions:
+        job.last_error = f"{message}\n\n{questions}"[:4000]
+        job.decision_reason = "Naukri direct apply - answer the questions, then retry"
+        _log(job, f"Naukri questions: {questions[:300]}")
+    else:
+        job.last_error = message[:900]
+        job.decision_reason = f"Naukri: {message}"[:500]
+        _log(job, f"Naukri apply needs review: {message[:180]}")
     db.commit()
     db.refresh(job)
     return {"ok": False, "code": code, "error": message, "job": job}
