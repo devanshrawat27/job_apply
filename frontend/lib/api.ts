@@ -254,6 +254,7 @@ export const api = {
   reportFake: (id: number) => mutate<Job>(`/jobs/${id}/report-fake`, { method: 'POST' }),
   markApplied: (id: number) => mutate<Job>(`/jobs/${id}/mark-applied`, { method: 'POST' }),
   retryDm: (id: number) => mutate<Job>(`/jobs/${id}/retry-dm`, { method: 'POST' }),
+  naukriApply: (id: number) => mutate<Job>(`/jobs/${id}/naukri-apply`, { method: 'POST' }),
   job: (id: number) => request<Job>(`/jobs/${id}`),
   jobPeople: (id: number) => request<PeopleFinderResult>(`/jobs/${id}/people`),
   findJobPeople: (id: number) =>

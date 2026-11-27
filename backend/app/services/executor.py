@@ -40,6 +40,8 @@ SCRIPTS: dict[str, str] = {
     "linkedin_login": "scripts/linkedinLogin.js",
     "naukri_login": "scripts/naukriLogin.js",
     "naukri_search": "scripts/naukriSearch.js",
+    "naukri_detail": "scripts/naukriDetail.js",
+    "naukri_apply": "scripts/naukriApply.js",
     "chatgpt_ask": "scripts/chatgptAsk.js",
     "chatgpt_login": "scripts/chatgptLogin.js",
     "chatgpt_whoami": "scripts/chatgptWhoami.js",
@@ -57,6 +59,8 @@ TIMEOUTS: dict[str, int] = {
     "login": 210,
     "naukri_login": 360,
     "naukri_search": 330,
+    "naukri_detail": 300,
+    "naukri_apply": 240,
     "chatgpt_ask": 220,
     "chatgpt_login": 340,
     "chatgpt_whoami": 100,
@@ -219,14 +223,14 @@ def run_script(
         env["STEALTH_HEADLESS"] = "1"
 
     # Naukri blocks headless Chromium at its edge. Run a real installed Chrome
-    # instead: visible for the one-time sign-in, off-screen for searches.
-    if name in ("naukri_login", "naukri_search"):
+    # instead: visible for the one-time sign-in, off-screen for everything else.
+    if name.startswith("naukri_"):
         env["BROWSER_CHANNEL"] = "chrome"
         env["STEALTH_HEADLESS"] = "0"
-        if name == "naukri_search":
-            env["STEALTH_OFFSCREEN"] = "1"
-        else:
+        if name == "naukri_login":
             env.pop("STEALTH_OFFSCREEN", None)
+        else:
+            env["STEALTH_OFFSCREEN"] = "1"
     if naukri_cookies:
         env["NAUKRI_COOKIES"] = json.dumps(naukri_cookies)
 

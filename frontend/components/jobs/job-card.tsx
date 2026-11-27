@@ -123,6 +123,31 @@ export function JobCard({
     }
   }
 
+  async function autoApplyNaukri() {
+    setBusy('naukri')
+    setError('')
+    try {
+      const updated = await api.naukriApply(job.id)
+      await onChange()
+      if (updated.status === 'sent') {
+        toast.success(
+          (updated.decision_reason || '').includes('already')
+            ? 'Naukri shows this as already applied'
+            : 'Applied on Naukri',
+        )
+      } else if (updated.status === 'new' && updated.apply_url) {
+        toast.info('This job applies on the company site - it is now in Apply links')
+      } else {
+        toast.warning(updated.decision_reason || 'Naukri needs your review')
+      }
+    } catch (err) {
+      setError((err as Error).message)
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
   async function sendEmail() {
     setBusy('send')
     setError('')
@@ -433,6 +458,17 @@ export function JobCard({
                   <ExternalLinkIcon className="size-3.5" />
                   {linkInPost ? 'Open post' : 'Apply on site'}
                 </a>
+              ) : null}
+
+              {isNaukri && job.status === 'pending_approval' && job.apply_method === 'naukri' ? (
+                <Button
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() => void autoApplyNaukri()}
+                >
+                  {busy === 'naukri' ? <Loader2Icon className="animate-spin" /> : <ExternalLinkIcon />}
+                  Auto-apply on Naukri
+                </Button>
               ) : null}
 
               <Button

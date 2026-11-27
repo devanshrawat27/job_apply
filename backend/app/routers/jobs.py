@@ -214,6 +214,22 @@ def send_now(
     return job
 
 
+@router.post("/{job_id}/naukri-apply", response_model=JobOut)
+def naukri_apply(
+    job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)
+) -> JobPost:
+    """Auto-apply on Naukri for a direct-apply job the human approved."""
+    job = _owned(db, job_id, user)
+    if job.status in ("sent", "sending"):
+        raise HTTPException(status_code=409, detail="this job is already applied")
+    result = pipeline.apply_naukri(db, job)
+    code = str(result.get("code") or "")
+    if not result.get("ok") and code in ("NOT_NAUKRI", "NO_ACCOUNT", "NO_URL"):
+        status = 409 if code == "NO_ACCOUNT" else 400
+        raise HTTPException(status_code=status, detail=result.get("error") or code)
+    return result.get("job") or job
+
+
 @router.post("/{job_id}/retry-dm", response_model=JobOut)
 def retry_dm(job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)) -> JobPost:
     """Retry when the last DM clearly did not land.

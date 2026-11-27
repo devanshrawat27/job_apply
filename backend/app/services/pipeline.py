@@ -1450,6 +1450,9 @@ def scan_naukri(
         "relevant": 0,
         "rejected": 0,
         "rejected_reasons": {},
+        "direct": 0,
+        "external": 0,
+        "already_applied": 0,
         "errors": [],
     }
 
@@ -1597,6 +1600,62 @@ def scan_naukri(
                 existing_hashes.add(fingerprint)
             stats["relevant"] += 1
             _log(job, "found on Naukri - added to Apply links for review")
+
+        # Naukri has two apply routes: its own form, or the company website.
+        # Check the new cards in one browser pass and route them accordingly.
+        if created:
+            urls = [job.post_url for job in created if job.post_url][:6]
+            if urls:
+                detail = executor.run_script(
+                    "naukri_detail",
+                    {"urls": ",".join(urls)},
+                    naukri_cookies=naukri_accounts.cookies(account) if account else {},
+                    user_id=user_id,
+                    timeout=300,
+                )
+                if not detail.get("success"):
+                    stats["errors"].append(
+                        "Naukri apply-type check failed: "
+                        f"{detail.get('error') or detail.get('code')}"
+                    )
+                else:
+                    results = (detail.get("data") or {}).get("results") or []
+                    for job, item in zip(created, results):
+                        kind = str((item or {}).get("type") or "unknown")
+                        if kind == "direct":
+                            job.apply_method = "naukri"
+                            job.status = "pending_approval"
+                            job.apply_url = ""
+                            job.link_checked_at = _now()
+                            job.decision_reason = (
+                                "Naukri direct apply - review and approve to auto-apply"
+                            )
+                            stats["direct"] += 1
+                            _log(job, "Naukri direct apply - moved to Approvals")
+                        elif kind == "external":
+                            job.apply_method = "link"
+                            job.status = "new"
+                            job.apply_url = job.post_url
+                            job.link_checked_at = _now()
+                            job.decision_reason = (
+                                "external apply link - open and apply on the company site"
+                            )
+                            stats["external"] += 1
+                            _log(job, "external apply link - kept in Apply links")
+                        elif kind == "applied":
+                            job.apply_method = "link"
+                            job.status = "skipped"
+                            job.apply_url = ""
+                            job.decision_reason = "already applied on Naukri"
+                            stats["already_applied"] += 1
+                            _log(job, job.decision_reason)
+                        else:
+                            job.apply_method = "link"
+                            job.status = "new"
+                            job.apply_url = job.post_url
+                            job.decision_reason = "Naukri job - review the apply method"
+                            _log(job, "apply type unknown - kept in Apply links")
+                db.commit()
 
         db.commit()
         stats["posts_new"] = len(created)
@@ -2846,6 +2905,80 @@ def _apply_write_result(
 
 
 # ------------------------------------------------------------------ decision
+
+def apply_naukri(db: Session, job: JobPost) -> dict:
+    """Run the Naukri apply flow for a reviewed direct-apply job."""
+    if (job.source or "").lower() != "naukri":
+        return {"ok": False, "code": "NOT_NAUKRI", "error": "not a Naukri job"}
+
+    account = naukri_accounts.active_account(db, job.user_id)
+    if account is None:
+        return {
+            "ok": False,
+            "code": "NO_ACCOUNT",
+            "error": "Connect Naukri in Settings before auto-applying.",
+        }
+
+    url = (job.post_url or job.apply_url or "").strip()
+    if not url:
+        return {"ok": False, "code": "NO_URL", "error": "job has no Naukri URL"}
+
+    result = executor.run_script(
+        "naukri_apply",
+        {"url": url},
+        naukri_cookies=naukri_accounts.cookies(account),
+        user_id=job.user_id,
+        timeout=240,
+    )
+    data = result.get("data") or {}
+    code = str(data.get("code") or result.get("code") or "ERROR")
+    message = str(data.get("message") or result.get("error") or code)
+
+    if result.get("success") and (data.get("applied") or code == "ALREADY_APPLIED"):
+        job.status = "sent"
+        job.sent_at = _now()
+        job.apply_method = "naukri"
+        job.apply_url = ""
+        job.last_error = ""
+        job.decision_reason = (
+            "already applied on Naukri" if code == "ALREADY_APPLIED" else "applied on Naukri"
+        )
+        db.add(
+            ActionLog(
+                user_id=job.user_id,
+                job_id=job.id,
+                action="apply",
+                status="sent",
+                target=(job.company or job.author_handle or "")[:300],
+                content="",
+                detail=message[:900],
+            )
+        )
+        _log(job, job.decision_reason)
+        db.commit()
+        db.refresh(job)
+        return {"ok": True, "code": code, "applied": True, "job": job}
+
+    if code == "EXTERNAL":
+        job.status = "new"
+        job.apply_method = "link"
+        job.apply_url = job.post_url
+        job.link_checked_at = _now()
+        job.decision_reason = "external apply link - open and apply on the company site"
+        _log(job, job.decision_reason)
+        db.commit()
+        db.refresh(job)
+        return {"ok": True, "code": "EXTERNAL", "applied": False, "job": job}
+
+    # Questions, a passcode wall or a failed flow: keep it for the human.
+    job.status = "pending_approval"
+    job.decision_reason = f"Naukri: {message}"[:500]
+    job.last_error = message[:900]
+    _log(job, f"Naukri apply needs review: {message[:180]}")
+    db.commit()
+    db.refresh(job)
+    return {"ok": False, "code": code, "error": message, "job": job}
+
 
 def approve(db: Session, job: JobPost, *, approved: bool, reply_text: str | None = None, dm_text: str | None = None) -> JobPost:
     job.decided_at = _now()

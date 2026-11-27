@@ -26,19 +26,23 @@ CARD = {
     "query": "python developer",
 }
 
-PROFILE = Profile(
-    id=1,
-    full_name="Dev Rawat",
-    seniority="junior",
-    experience_months=4,
-    current_role="SDE Intern",
-    skills=["python", "fastapi", "postgresql"],
-    target_roles=["python developer", "backend developer"],
-    country="India",
-    location="Dehradun",
-    domain="tech",
-    willing_to_relocate=True,
-)
+def make_profile() -> Profile:
+    return Profile(
+        id=1,
+        full_name="Dev Rawat",
+        seniority="junior",
+        experience_months=4,
+        current_role="SDE Intern",
+        skills=["python", "fastapi", "postgresql"],
+        target_roles=["python developer", "backend developer"],
+        country="India",
+        location="Dehradun",
+        domain="tech",
+        willing_to_relocate=True,
+    )
+
+
+PROFILE = make_profile()
 
 
 @pytest.fixture()
@@ -49,7 +53,7 @@ def db():
     session.commit()
     session.add_all(
         [
-            PROFILE,
+            make_profile(),
             AgentSettings(id=1, enabled=True, relevance_threshold=60),
             NaukriAccount(
                 user_id=None,
@@ -163,6 +167,80 @@ def test_scan_adds_a_reviewable_apply_link_and_dedupes(db, monkeypatch):
     assert again.stats["posts_new"] == 0
     assert again.stats["duplicates"] == 1
     assert len(list(db.scalars(select(JobPost).where(JobPost.source == "naukri")))) == 1
+
+
+def test_scan_routes_direct_naukri_jobs_to_approvals(db, monkeypatch):
+    def fake(name, args=None, **kwargs):
+        if name == "naukri_search":
+            return {"success": True, "code": "OK", "data": {"jobs": [CARD]}}
+        if name == "naukri_detail":
+            return {
+                "success": True,
+                "code": "OK",
+                "data": {"results": [{"type": "direct", "url": CARD["url"]}]},
+            }
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake)
+    run = pipeline.scan_naukri(db, user_id=None)
+    assert run.status == "completed", run.error
+
+    job = db.scalar(select(JobPost).where(JobPost.source == "naukri"))
+    assert job.status == "pending_approval"
+    assert job.apply_method == "naukri"
+    assert job.apply_url == ""
+    assert job.post_url == CARD["url"]
+
+
+def test_scan_keeps_external_naukri_jobs_in_apply_links(db, monkeypatch):
+    def fake(name, args=None, **kwargs):
+        if name == "naukri_search":
+            return {"success": True, "code": "OK", "data": {"jobs": [CARD]}}
+        if name == "naukri_detail":
+            return {
+                "success": True,
+                "code": "OK",
+                "data": {"results": [{"type": "external", "url": CARD["url"]}]},
+            }
+        return {"success": True, "code": "OK", "data": {}}
+
+    monkeypatch.setattr(executor, "run_script", fake)
+    pipeline.scan_naukri(db, user_id=None)
+
+    job = db.scalar(select(JobPost).where(JobPost.source == "naukri"))
+    assert job.status == "new"
+    assert job.apply_method == "link"
+    assert job.apply_url == CARD["url"]
+
+
+def test_apply_naukri_marks_the_job_sent(db, monkeypatch):
+    job = JobPost(
+        post_id="naukri:apply-1",
+        source="naukri",
+        status="pending_approval",
+        post_url=CARD["url"],
+        company="Acme Labs",
+        role="Python Developer",
+        apply_method="naukri",
+    )
+    db.add(job)
+    db.commit()
+
+    monkeypatch.setattr(
+        executor,
+        "run_script",
+        lambda name, args=None, **kwargs: {
+            "success": True,
+            "code": "OK",
+            "data": {"applied": True, "code": "APPLIED", "message": "done"},
+        },
+    )
+    result = pipeline.apply_naukri(db, job)
+    assert result["applied"] is True
+    db.refresh(job)
+    assert job.status == "sent"
+    assert job.apply_method == "naukri"
+    assert "applied on Naukri" in job.decision_reason
 
 
 def test_stale_naukri_jobs_leave_the_list(db):
