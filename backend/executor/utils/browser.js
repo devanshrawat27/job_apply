@@ -109,6 +109,13 @@ export async function launchBrowser({ withSession = true } = {}) {
 
     if (withSession) await injectCookies(context, config.credentials)
 
+    // A killed or timed-out run can leave empty tabs in the persistent profile;
+    // every new launch would restore them and the window would fill up.
+    for (const existing of context.pages()) {
+      if (existing.url() === 'about:blank') {
+        await existing.close().catch(() => {})
+      }
+    }
     const page = context.pages()[0] || (await context.newPage())
     // A persistent profile starts on about:blank; land on X so the window is
     // not an empty white page between runs.
