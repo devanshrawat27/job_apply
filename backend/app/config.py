@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     # Playwright executor
     automation_enabled: bool = True
     automation_timeout_s: int = 180
-    automation_headless: bool = False
+    # Run automation in headless Chromium. Interactive sign-ins are exempt, so
+    # the user only sees a browser when they explicitly connect an account.
+    automation_headless: bool = True
 
     # Auth. Set JWT_SECRET_KEY in production; AUTH_ENABLED=false is only for
     # local single-user development and automated tests.
