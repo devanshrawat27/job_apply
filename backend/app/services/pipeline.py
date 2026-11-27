@@ -1475,7 +1475,7 @@ def scan_naukri(
         # when it exists.
         stats["connected"] = account is not None
 
-        terms = naukri.search_terms(profile, limit=2)
+        terms = naukri.search_terms(profile, limit=3)
         stats["queries"] = len(terms)
         stats["keywords"] = terms
         if not terms:

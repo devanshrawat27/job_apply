@@ -146,6 +146,20 @@ def test_a_good_listing_passes_and_scores():
     assert verdict["company"] == "Acme Labs"
 
 
+def test_generic_intern_title_with_software_description_passes():
+    profile = make_profile()
+    detail = dict(
+        linkedin_guest.parse_detail(DETAIL),
+        title="Campus Intern",
+        description=(
+            "Software engineering intern. Build React and Node APIs. "
+            "0-1 years welcome. " + "x" * 250
+        ),
+    )
+    verdict = linkedin_jobs.assess(profile, {}, detail)
+    assert verdict["ok"] is True, verdict["reason"]
+
+
 def test_senior_and_non_tech_titles_are_rejected():
     senior = dict(linkedin_guest.parse_detail(DETAIL), title="Senior Python Developer")
     assert linkedin_jobs.assess(make_profile(), {}, senior)["ok"] is False

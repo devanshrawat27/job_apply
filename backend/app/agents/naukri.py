@@ -17,7 +17,7 @@ from app.models import Profile
 MIN_RELEVANCE = 45
 
 
-def search_terms(profile: Profile, limit: int = 2) -> list[str]:
+def search_terms(profile: Profile, limit: int = 3) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
 
@@ -31,6 +31,10 @@ def search_terms(profile: Profile, limit: int = 2) -> list[str]:
 
     for role in discovery.selected_roles(profile)[:2]:
         add(role)
+    # A student/fresher should also see internships, not only full-time roles.
+    if linkedin_jobs.is_junior(profile) or linkedin_jobs.is_student(profile):
+        add("software intern")
+        add("developer intern")
     for role in discovery.infer_adjacent_roles(profile, limit=1):
         add(role)
     for skill in (profile.skills or [])[:2]:
@@ -110,7 +114,25 @@ def assess(profile: Profile, card: dict) -> dict:
         result["reason"] = f"not a software role ({title})"
         return result
 
+    intern = linkedin_jobs.INTERN_TITLE_RE.search(title)
+    query = str(card.get("query") or "").lower()
+    query_is_intern = "intern" in query or "internship" in query
     points = linkedin_jobs.role_points(profile, title)
+    if not points and intern and (
+        linkedin_jobs.is_junior(profile) or linkedin_jobs.is_student(profile)
+    ):
+        # Generic "Intern"/"Campus Intern" cards are fine for a student when
+        # the snippet/skills show software work, or when our own search query
+        # was an intern search. Reject obvious non-software branches.
+        if query_is_intern or linkedin_jobs.context_matches(profile, text):
+            if re.search(
+                r"\b(electronics|electrical|mechanical|civil|chemical|instrumentation)\b",
+                text,
+                re.I,
+            ):
+                result["reason"] = "not a software role"
+                return result
+            points = 40
     if not points:
         result["reason"] = f"not one of your target roles ({title})"
         return result
@@ -145,6 +167,12 @@ def assess(profile: Profile, card: dict) -> dict:
     if years == 0 or "fresher" in experience.lower() or "fresher" in title.lower():
         relevance += 6
     relevance = max(0, min(100, relevance))
+    if intern and (junior or linkedin_jobs.is_student(profile)) and (
+        points >= 25 or query_is_intern or linkedin_jobs.context_matches(profile, text)
+    ):
+        # Internships are appropriate for this profile; do not lose one just
+        # because the title carries less keyword weight than a full-time role.
+        relevance = max(relevance, MIN_RELEVANCE)
     if relevance < MIN_RELEVANCE:
         result["reason"] = f"weak match (score {relevance})"
         return result

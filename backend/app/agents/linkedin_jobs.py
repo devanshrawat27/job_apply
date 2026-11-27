@@ -18,6 +18,7 @@ Rules, in order:
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 
 from app.agents import discovery
 from app.models import Profile
@@ -49,9 +50,9 @@ TECH_TITLE_RE = re.compile(
 )
 
 NON_TECH_TITLE_RE = re.compile(
-    r"\b(sales|business development|marketing|digital marketing|seo|content writer|"
+    r"\b(sales|telesales|tele[- ]sales|business development|marketing|digital marketing|seo|content writer|"
     r"copywriter|hr|human resources|recruiter|talent acquisition|customer support|"
-    r"customer service|telecaller|bpo|operations|accountant|finance|insurance|"
+    r"customer service|telecaller|bpo|operations|accountant|finance|fin|insurance|"
     r"field agent|relationship manager|loan|real estate|driver|delivery|"
     r"data entry|back office|receptionist)\b",
     re.I,
@@ -101,6 +102,52 @@ def is_junior(profile: Profile) -> bool:
     if any(word in seniority for word in ("intern", "fresher", "entry", "junior", "trainee", "graduate")):
         return True
     return (profile.experience_months or 0) <= 12
+
+
+INTERN_TITLE_RE = re.compile(
+    r"\b(intern|internship|trainee|campus|fresher|graduate|apprentice)\b", re.I
+)
+
+# Stricter than TECH_TITLE_RE: "data" in "data entry" must not make an admin
+# internship look like a software role.
+_INTERN_CONTEXT_RE = re.compile(
+    r"\b(software|developer|engineer|engineering|sde|programmer|full[ -]?stack|"
+    r"mern|mean|front[ -]?end|back[ -]?end|web|react|node|python|java|javascript|"
+    r"typescript|golang|rust|php|\.net|devops|cloud|qa|test automation|database|"
+    r"sql|api|backend|frontend)\b",
+    re.I,
+)
+
+
+def is_student(profile: Profile) -> bool:
+    """True while the candidate is still studying / has not graduated.
+
+    ``graduation_year`` is structured, so use it first. Older profiles without
+    it fall back to the role/seniority text.
+    """
+    if (profile.work_authorization or "").lower() == "student":
+        return True
+    year = int(profile.graduation_year or 0)
+    if year and year >= datetime.now(timezone.utc).year:
+        return True
+    text = f"{profile.current_role or ''} {profile.seniority or ''}".lower()
+    return any(word in text for word in ("intern", "student", "pursuing", "final year", "trainee"))
+
+
+def context_matches(profile: Profile, text: str) -> bool:
+    """Does the description/skills mention the candidate's roles or skills?
+
+    Used for generic intern titles ("Campus Intern", "Intern") where the title
+    alone cannot tell whether the work is software.
+    """
+    lowered = (text or "").lower()
+    if not lowered:
+        return False
+    if any(role and role in lowered for role in _role_terms(profile)):
+        return True
+    if skill_points(profile, "", lowered) >= 8:
+        return True
+    return bool(is_tech_profile(profile) and _INTERN_CONTEXT_RE.search(lowered))
 
 
 def _role_terms(profile: Profile) -> list[str]:
@@ -215,6 +262,16 @@ def assess(profile: Profile, card: dict, detail: dict) -> dict:
         return result
 
     points = role_points(profile, title)
+    if not points and INTERN_TITLE_RE.search(title) and (
+        is_junior(profile) or is_student(profile)
+    ):
+        # A student/fresher is allowed to apply to a generic intern title when
+        # the description is clearly in their domain.
+        intern_context = " ".join(
+            part for part in (description, seniority, employment) if part
+        )
+        if context_matches(profile, intern_context):
+            points = 40
     if not points:
         result["reason"] = f"not one of your target roles ({title})"
         return result

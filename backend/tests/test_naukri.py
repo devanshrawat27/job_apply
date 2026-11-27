@@ -95,6 +95,28 @@ def test_mern_fresher_is_recognised():
     assert verdict["ok"] is True, verdict["reason"]
 
 
+def test_generic_intern_title_passes_when_context_is_software():
+    card = {
+        **CARD,
+        "title": "Campus Intern",
+        "snippet": "Software development intern. Work with React and Node.",
+        "skills": ["React", "Node.js"],
+    }
+    verdict = naukri.assess(PROFILE, card)
+    assert verdict["ok"] is True, verdict["reason"]
+
+
+def test_generic_intern_title_without_software_context_is_rejected():
+    card = {
+        **CARD,
+        "title": "Campus Intern",
+        "snippet": "General administration, filing and data entry work.",
+        "skills": ["Excel"],
+    }
+    verdict = naukri.assess(PROFILE, card)
+    assert verdict["ok"] is False
+
+
 def test_senior_and_experienced_cards_are_rejected():
     senior = {**CARD, "title": "Senior Python Developer"}
     assert naukri.assess(PROFILE, senior)["ok"] is False
