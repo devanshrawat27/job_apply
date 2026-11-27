@@ -42,6 +42,7 @@ SCRIPTS: dict[str, str] = {
     "naukri_search": "scripts/naukriSearch.js",
     "naukri_detail": "scripts/naukriDetail.js",
     "naukri_apply": "scripts/naukriApply.js",
+    "naukri_open": "scripts/naukriOpen.js",
     "chatgpt_ask": "scripts/chatgptAsk.js",
     "chatgpt_login": "scripts/chatgptLogin.js",
     "chatgpt_whoami": "scripts/chatgptWhoami.js",
@@ -202,6 +203,7 @@ def run_script(
     timeout: int | None = None,
     lock_timeout: float | None = None,
     naukri_cookies: dict[str, str] | None = None,
+    browser_cdp_endpoint: str | None = None,
 ) -> dict[str, Any]:
     """Run one executor script and return its parsed RESULT_JSON payload."""
     if name not in SCRIPTS:
@@ -229,10 +231,17 @@ def run_script(
         env["STEALTH_HEADLESS"] = "0"
         if name == "naukri_login":
             env.pop("STEALTH_OFFSCREEN", None)
+        elif name in ("naukri_search", "naukri_detail"):
+            # Installed Chrome's new headless mode passes Naukri's edge, so the
+            # scheduled scan runs without a visible window.
+            env["STEALTH_HEADLESS"] = "1"
+            env.pop("STEALTH_OFFSCREEN", None)
         else:
             env["STEALTH_OFFSCREEN"] = "1"
     if naukri_cookies:
         env["NAUKRI_COOKIES"] = json.dumps(naukri_cookies)
+    if browser_cdp_endpoint:
+        env["BROWSER_CDP_ENDPOINT"] = browser_cdp_endpoint
 
     for key, value in (args or {}).items():
         if value is None:

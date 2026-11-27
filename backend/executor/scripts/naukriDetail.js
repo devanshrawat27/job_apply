@@ -53,10 +53,8 @@ async function classify(page, url) {
 }
 
 async function run() {
-  delete process.env.BROWSER_CDP_ENDPOINT
   process.env.JOBPILOT_PROFILE_SUFFIX = `${process.env.JOBPILOT_PROFILE_SUFFIX || ''}-naukri`
-  process.env.STEALTH_HEADLESS = '0'
-  process.env.STEALTH_OFFSCREEN = '1'
+  process.env.JOBPILOT_EPHEMERAL = '1'
   const { browser, context, page } = await launchBrowser({ withSession: false })
   try {
     const cookies = storedCookies()
@@ -75,6 +73,7 @@ async function run() {
   } catch (err) {
     reportFail(err.code || 'ERROR', err.message)
     process.exitCode = 1
+    throw err
   } finally {
     await browser?.close().catch(() => {})
     clearTimeout(watchdog)
@@ -83,8 +82,12 @@ async function run() {
 
 if (!URLS.length) {
   reportFail('VALIDATION', 'SCRIPT_ARG_URLS is required')
-  process.exitCode = 1
-  clearTimeout(watchdog)
+  process.exit(1)
 } else {
-  run().finally(() => clearTimeout(watchdog))
+  run()
+    .then(() => {
+      clearTimeout(watchdog)
+      setTimeout(() => process.exit(0), 100)
+    })
+    .catch(() => process.exit(1))
 }

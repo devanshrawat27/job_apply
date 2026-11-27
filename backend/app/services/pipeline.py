@@ -43,7 +43,7 @@ from app.models import (
     Run,
     XAccount,
 )
-from app.security import decrypt_credentials
+from app.security import decrypt_credentials, encrypt_credentials
 from app.services import (
     accounts,
     browser_chatgpt,
@@ -2907,6 +2907,36 @@ def _apply_write_result(
 
 # ------------------------------------------------------------------ decision
 
+def _naukri_profile_facts(profile: Profile | None) -> dict:
+    """The facts Naukri's questionnaire can be answered from automatically."""
+    if profile is None:
+        return {}
+    text = profile.resume_text or ""
+    degree = ""
+    match = re.search(
+        r"\b(B\.?\s?Tech\b|B\.?\s?E\s*\.|Bachelor(?: of [A-Za-z ]+)?|"
+        r"M\.?\s?Tech\b|Master(?: of [A-Za-z ]+)?)",
+        text,
+        re.I,
+    )
+    if match:
+        degree = re.sub(r"\s+", " ", match.group(1)).strip()[:60]
+    cgpa = ""
+    score = re.search(r"(?:CGPA|GPA)\s*[:\-]?\s*([0-9]+(?:\.[0-9]+)?)", text, re.I)
+    if score:
+        cgpa = score.group(1)
+    return {
+        "degree": degree,
+        "graduation_year": int(profile.graduation_year or 0),
+        "experience_months": int(profile.experience_months or 0),
+        "current_role": profile.current_role or "",
+        "seniority": profile.seniority or "",
+        "willing_to_relocate": bool(profile.willing_to_relocate),
+        "location": profile.location or "",
+        "cgpa": cgpa,
+    }
+
+
 def apply_naukri(db: Session, job: JobPost, answers: dict[str, str] | None = None) -> dict:
     """Run the Naukri apply flow for a reviewed direct-apply job."""
     if (job.source or "").lower() != "naukri":
@@ -2924,19 +2954,45 @@ def apply_naukri(db: Session, job: JobPost, answers: dict[str, str] | None = Non
     if not url:
         return {"ok": False, "code": "NO_URL", "error": "job has no Naukri URL"}
 
-    args: dict = {"url": url}
+    # Drive the one visible Naukri window over CDP. This is the same window the
+    # human sees, so there are no extra Chrome windows and the apply steps are
+    # watchable instead of hidden.
+    endpoint = naukri_accounts.ensure_window(url)
+
+    facts = _naukri_profile_facts(get_profile(db, job.user_id))
+    args: dict = {"url": url, "profile": json.dumps(facts)}
     if answers:
-        args["answers"] = json.dumps([str(value) for value in answers.values() if str(value).strip()])
+        args["answers"] = json.dumps(
+            {str(key): str(value) for key, value in answers.items() if str(value).strip()}
+        )
     result = executor.run_script(
         "naukri_apply",
         args,
         naukri_cookies=naukri_accounts.cookies(account),
         user_id=job.user_id,
         timeout=240,
+        browser_cdp_endpoint=endpoint,
     )
     data = result.get("data") or {}
     code = str(data.get("code") or result.get("code") or "ERROR")
     message = str(data.get("message") or result.get("error") or code)
+
+    # Naukri rotates its auth cookies. Keep the DB copy current so the next run
+    # and the visible window stay signed in.
+    returned_cookies = data.get("cookies")
+    if isinstance(returned_cookies, dict) and returned_cookies:
+        account.session_ciphertext = encrypt_credentials(returned_cookies)
+        db.commit()
+
+    if code == "LOGIN_REQUIRED":
+        naukri_accounts.mark_status(db, account, "expired")
+        job.status = "pending_approval"
+        job.last_error = message[:900]
+        job.decision_reason = "Naukri session expired - reconnect Naukri"
+        _log(job, "Naukri apply blocked: session expired")
+        db.commit()
+        db.refresh(job)
+        return {"ok": False, "code": code, "error": message, "job": job}
 
     if result.get("success") and (data.get("applied") or code == "ALREADY_APPLIED"):
         job.status = "sent"
@@ -2947,6 +3003,7 @@ def apply_naukri(db: Session, job: JobPost, answers: dict[str, str] | None = Non
         job.decision_reason = (
             "already applied on Naukri" if code == "ALREADY_APPLIED" else "applied on Naukri"
         )
+        naukri_accounts.mark_status(db, account, "connected")
         db.add(
             ActionLog(
                 user_id=job.user_id,
@@ -2978,9 +3035,9 @@ def apply_naukri(db: Session, job: JobPost, answers: dict[str, str] | None = Non
     questions = str(data.get("questions") or "").strip()
     job.status = "pending_approval"
     if questions:
-        job.last_error = f"{message}\n\n{questions}"[:4000]
-        job.decision_reason = "Naukri direct apply - answer the questions, then retry"
-        _log(job, f"Naukri questions: {questions[:300]}")
+        job.last_error = questions[:4000]
+        job.decision_reason = "Naukri asks a question - answer it"
+        _log(job, f"Naukri question: {questions[:300]}")
     else:
         job.last_error = message[:900]
         job.decision_reason = f"Naukri: {message}"[:500]

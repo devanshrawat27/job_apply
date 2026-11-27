@@ -59,10 +59,7 @@ def open_window(
     requested = str((payload or {}).get("url") or "").strip()
     if requested and not requested.startswith("https://www.naukri.com/"):
         raise HTTPException(status_code=400, detail="only naukri.com URLs can be opened")
-    result = naukri_accounts.open_window(
-        requested or "https://www.naukri.com/myapply/historypage",
-        replace=bool(requested),
-    )
+    result = naukri_accounts.open_window(requested or "https://www.naukri.com/")
     if not result.get("ok"):
         raise HTTPException(status_code=500, detail=result.get("error") or "could not open Chrome")
     return {"ok": True}

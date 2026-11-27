@@ -84,11 +84,17 @@ export function NaukriCard() {
           Naukri.com
           {account ? (
             <Badge
-              variant={account.status === 'blocked' ? 'destructive' : 'success'}
+              variant={account.status === 'connected' ? 'success' : 'destructive'}
               className="ml-1 gap-1"
             >
-              {account.status === 'blocked' ? null : <CheckCircle2Icon className="size-3" />}
-              {account.status === 'blocked' ? 'Blocked' : 'Connected'}
+              {account.status === 'connected' ? (
+                <CheckCircle2Icon className="size-3" />
+              ) : null}
+              {account.status === 'blocked'
+                ? 'Blocked'
+                : account.status === 'expired'
+                  ? 'Expired'
+                  : 'Connected'}
             </Badge>
           ) : null}
         </CardTitle>
@@ -133,6 +139,12 @@ export function NaukriCard() {
         {account?.status === 'blocked' && !replacing ? (
           <p className="text-xs text-amber-600 dark:text-amber-400">
             Naukri blocked the last browser session. Close any other Naukri windows, then reconnect.
+          </p>
+        ) : null}
+
+        {account?.status === 'expired' && !replacing ? (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            Naukri signed this session out. Reconnect once to keep auto-applying.
           </p>
         ) : null}
 

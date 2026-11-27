@@ -229,7 +229,15 @@ def naukri_preview(
         if str(value or "").strip()
     }
     error = (job.last_error or "").strip()
-    questions = error if ("question" in error.lower() or "answer" in error.lower()) else ""
+    asks_question = (job.decision_reason or "").startswith("Naukri asks a question")
+    questions = error if asks_question else ""
+    question = questions.split("\n")[0].strip() if questions else ""
+    options: list[str] = []
+    for line in questions.splitlines():
+        if line.lower().startswith("options:"):
+            options = [part.strip() for part in line.split(":", 1)[1].split("/") if part.strip()]
+    facts = pipeline._naukri_profile_facts(profile)
+
     return {
         "job": {
             "id": job.id,
@@ -244,11 +252,16 @@ def naukri_preview(
             "experience_months": int(profile.experience_months or 0),
             "current_role": profile.current_role or "",
             "graduation_year": int(profile.graduation_year or 0),
+            "degree": str(facts.get("degree") or ""),
+            "location": profile.location or "",
             "resume": job.resume_label or profile.resume_filename or "Naukri saved resume",
             "links": links,
             "skills": [str(item) for item in (profile.skills or [])[:12]],
         },
+        "question": question,
+        "options": options,
         "questions": questions,
+        "error": "" if asks_question else error,
     }
 
 

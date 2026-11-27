@@ -30,8 +30,13 @@ async function attachToHost() {
     const context = browser.contexts()[0]
     if (!context) return null
 
-    // Reuse the host's page: it already holds the logged-in X session.
-    const page = context.pages()[0] || (await context.newPage())
+    // Reuse the host's page: it already holds the logged-in session. Prefer a
+    // real site page over a leftover about:blank tab.
+    const pages = context.pages()
+    const page =
+      pages.find((item) => !/^about:blank$/i.test(item.url()) && !item.url().startsWith('devtools://')) ||
+      pages[0] ||
+      (await context.newPage())
 
     const safeBrowser = new Proxy(browser, {
       get(target, prop, receiver) {
@@ -41,7 +46,7 @@ async function attachToHost() {
       },
     })
 
-    return { browser: safeBrowser, context, page }
+    return { browser: safeBrowser, context, page, attached: true }
   } catch (err) {
     console.log(`[browser.js] CDP attach failed: ${err.message}`)
     return null
@@ -87,6 +92,11 @@ export async function launchBrowser({ withSession = true } = {}) {
   if (config.channel) baseOptions.channel = config.channel
 
   try {
+    if (process.env.JOBPILOT_EPHEMERAL === '1') {
+      // Headless scans must not fight the visible Naukri window for its profile
+      // lock; a fresh context with the stored cookies is enough.
+      throw new Error('ephemeral context requested')
+    }
     fs.mkdirSync(profileDir, { recursive: true })
     let context
     try {
@@ -130,7 +140,7 @@ export async function launchBrowser({ withSession = true } = {}) {
     const browserLike = {
       close: async () => context.close().catch(() => {}),
     }
-    return { browser: browserLike, context, page }
+    return { browser: browserLike, context, page, attached: false }
   } catch (err) {
     console.log(`[browser.js] persistent profile failed (${err.message}), using a fresh context`)
   }
@@ -158,7 +168,7 @@ export async function launchBrowser({ withSession = true } = {}) {
   if (withSession) await injectCookies(context, config.credentials)
 
   const page = await context.newPage()
-  return { browser, context, page }
+  return { browser, context, page, attached: false }
 }
 
 /** X shows the logged-out shell when the cookies are dead. */

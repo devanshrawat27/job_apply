@@ -226,6 +226,7 @@ def test_apply_naukri_marks_the_job_sent(db, monkeypatch):
     db.add(job)
     db.commit()
 
+    monkeypatch.setattr(pipeline.naukri_accounts, "ensure_window", lambda url: None)
     monkeypatch.setattr(
         executor,
         "run_script",
@@ -241,6 +242,19 @@ def test_apply_naukri_marks_the_job_sent(db, monkeypatch):
     assert job.status == "sent"
     assert job.apply_method == "naukri"
     assert "applied on Naukri" in job.decision_reason
+
+
+def test_naukri_profile_facts_reads_degree_and_cgpa():
+    profile = make_profile()
+    profile.resume_text = (
+        "Education\nGraphic Era Hill University, Dehradun\n"
+        "B.Tech in Computer Science & Engineering CGPA: 7.70/10"
+    )
+    profile.graduation_year = 2027
+    facts = pipeline._naukri_profile_facts(profile)
+    assert facts["degree"] == "B.Tech"
+    assert facts["cgpa"] == "7.70"
+    assert facts["graduation_year"] == 2027
 
 
 def test_stale_naukri_jobs_leave_the_list(db):

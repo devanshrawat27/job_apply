@@ -74,11 +74,16 @@ export interface NaukriPreview {
     experience_months: number
     current_role: string
     graduation_year: number
+    degree: string
+    location: string
     resume: string
     links: Record<string, string>
     skills: string[]
   }
+  question: string
+  options: string[]
   questions: string
+  error: string
 }
 
 export interface NaukriAccount {

@@ -32,12 +32,45 @@ import { api } from '@/lib/api'
 import type { Job, NaukriPreview } from '@/lib/types'
 import { cn, cleanPostText, formatExperience, timeAgo } from '@/lib/utils'
 
-function questionOptions(text: string): string[] {
+function questionOptions(text: string, provided?: string[]): string[] {
+  if (provided && provided.length) return provided
   const raw = text || ''
+  const declared = raw.match(/options:\s*(.+)/i)
+  if (declared) {
+    const parts = declared[1]
+      .split('/')
+      .map((part) => part.trim())
+      .filter(Boolean)
+    if (parts.length) return parts
+  }
   const years = Array.from(new Set(raw.match(/\b20\d{2}\b/g) || []))
   if (years.length >= 2 && /graduat|passout|batch|year of/i.test(raw)) return years
   if (/\byes\b[\s/,]*\bno\b|\bno\b[\s/,]*\byes\b/i.test(raw)) return ['Yes', 'No']
   return []
+}
+
+function preferredAnswer(preview: NaukriPreview, options: string[]): string {
+  const question = (preview.question || preview.questions || '').toLowerCase()
+  const has = (value: string) => options.find((option) => option.toLowerCase() === value.toLowerCase())
+  if (!question) return ''
+  if (/bond/.test(question)) return ''
+  if (/year of|graduat|passout|batch/.test(question)) {
+    const year = String(preview.profile.graduation_year || '')
+    if (!options.length) return year
+    return year && options.includes(year) ? year : ''
+  }
+  if (/degree/.test(question)) {
+    if (!options.length) return preview.profile.degree || ''
+    const first = (preview.profile.degree || '').split(' ')[0].toLowerCase()
+    if (!first) return ''
+    return options.find((option) => option.toLowerCase().includes(first)) || ''
+  }
+  if (/qualification/.test(question)) return has('UG') || ''
+  if (/experienc|\bpf\b|provident/.test(question)) return has('No') || ''
+  if (/relocat|willing/.test(question)) return has('Yes') || ''
+  if (/notice/.test(question)) return has('Immediate') || ''
+  if (options.length === 1) return options[0]
+  return ''
 }
 
 const STATUS: Record<
@@ -133,20 +166,19 @@ export function JobCard({
     }
   }
 
+  function showPreview(preview: NaukriPreview) {
+    setNaukriPreview(preview)
+    const options = questionOptions(preview.questions, preview.options)
+    setNaukriAnswer(preferredAnswer(preview, options))
+  }
+
   async function openNaukriPreview() {
     setBusy('naukri-preview')
     setError('')
     setNaukriAnswer('')
     try {
       const preview = await api.naukriPreview(job.id)
-      setNaukriPreview(preview)
-      const years = Array.from(new Set(preview.questions.match(/\b20\d{2}\b/g) || []))
-      if (
-        /graduat|passout|batch|year of/i.test(preview.questions) &&
-        years.includes(String(preview.profile.graduation_year))
-      ) {
-        setNaukriAnswer(String(preview.profile.graduation_year))
-      }
+      showPreview(preview)
     } catch (err) {
       setError((err as Error).message)
       toast.error((err as Error).message)
@@ -160,24 +192,42 @@ export function JobCard({
     setError('')
     try {
       const answers =
-        naukriPreview?.questions && naukriAnswer
-          ? { [naukriPreview.questions.slice(0, 200)]: naukriAnswer }
+        naukriPreview?.question && naukriAnswer
+          ? { [naukriPreview.question]: naukriAnswer }
           : undefined
       const updated = await api.naukriApply(job.id, answers)
-      setNaukriPreview(null)
-      setNaukriAnswer('')
       await onChange()
       if (updated.status === 'sent') {
+        setNaukriPreview(null)
+        setNaukriAnswer('')
         toast.success(
           (updated.decision_reason || '').includes('already')
             ? 'Naukri shows this as already applied'
             : 'Applied on Naukri',
         )
-      } else if (updated.status === 'new' && updated.apply_url) {
-        toast.info('This job applies on the company site - it is now in Apply links')
-      } else {
-        toast.warning(updated.decision_reason || 'Naukri needs your review')
+        return
       }
+      if (updated.status === 'new' && updated.apply_url) {
+        setNaukriPreview(null)
+        setNaukriAnswer('')
+        toast.info('This job applies on the company site - it is now in Apply links')
+        return
+      }
+      // Naukri asks its questions one at a time; keep the popup open and show
+      // the next one instead of dropping the human back to the card.
+      try {
+        const next = await api.naukriPreview(job.id)
+        if (next.question) {
+          showPreview(next)
+          toast.info('Naukri asks one more question')
+          return
+        }
+      } catch {
+        // fall through to the plain warning
+      }
+      setNaukriPreview(null)
+      setNaukriAnswer('')
+      toast.warning(updated.decision_reason || 'Naukri needs your review')
     } catch (err) {
       setError((err as Error).message)
       toast.error((err as Error).message)
@@ -235,14 +285,13 @@ export function JobCard({
     }
   }
 
-  const previewYears = naukriPreview
-    ? Array.from(new Set(naukriPreview.questions.match(/\b20\d{2}\b/g) || []))
-    : []
+  const previewText = naukriPreview ? naukriPreview.question || naukriPreview.questions : ''
+  const previewYears = Array.from(new Set(previewText.match(/\b20\d{2}\b/g) || []))
   const askYear =
     Boolean(naukriPreview) &&
     previewYears.length > 0 &&
-    /graduat|passout|batch|year of/i.test(naukriPreview?.questions || '')
-  const previewOptions = questionOptions(naukriPreview?.questions || '')
+    /graduat|passout|batch|year of/i.test(previewText)
+  const previewOptions = questionOptions(previewText, naukriPreview?.options)
 
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
@@ -813,11 +862,23 @@ export function JobCard({
               ))}
             </div>
 
-            {naukriPreview.questions ? (
+            {naukriPreview.error ? (
+              <div className="mt-3 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                <p className="text-[11px] font-medium text-destructive">Naukri needs you</p>
+                <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
+                  {naukriPreview.error}
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  If the session expired, go to Settings → Naukri → Connect and sign in again.
+                </p>
+              </div>
+            ) : null}
+
+            {previewText ? (
               <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
                 <p className="text-[11px] font-medium">Naukri asks</p>
                 <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
-                  {naukriPreview.questions}
+                  {naukriPreview.question || naukriPreview.questions}
                 </p>
                 {previewOptions.length ? (
                   <label className="mt-2 flex flex-col gap-1 text-[11px] font-medium">
@@ -867,10 +928,7 @@ export function JobCard({
               </Button>
               <Button
                 size="sm"
-                disabled={
-                  busy !== null ||
-                  (Boolean(naukriPreview.questions) && !naukriAnswer.trim())
-                }
+                disabled={busy !== null || (Boolean(previewText) && !naukriAnswer.trim())}
                 onClick={() => void confirmNaukriApply()}
               >
                 {busy === 'naukri-apply' ? (

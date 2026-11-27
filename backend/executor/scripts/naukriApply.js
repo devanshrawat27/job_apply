@@ -1,32 +1,59 @@
 /**
- * Apply to a Naukri job with the connected session.
+ * Apply to a Naukri job in the one visible Naukri Chrome window.
  *
  * Direct Naukri jobs can be submitted from the job page. External ("Apply on
  * company site") jobs are reported back so the human gets the link instead.
- * When Naukri asks a questionnaire, nothing is submitted: the questions are
- * returned for review.
  *
- *   SCRIPT_ARG_URL    Naukri job URL
- *   NAUKRI_COOKIES    JSON cookie object
+ * Naukri's questionnaire is a chat drawer. It asks one question at a time, so
+ * this script loops: answer, Save, wait for the next question, and repeat until
+ * Naukri shows the job as Applied. Questions that can be answered from the
+ * profile are filled automatically; anything subjective (e.g. a bond) is
+ * returned for the human. Naukri stores answered questions server-side, so the
+ * next run resumes at the next unanswered question.
+ *
+ *   SCRIPT_ARG_URL      Naukri job URL
+ *   SCRIPT_ARG_PROFILE  JSON profile facts used for automatic answers
+ *   SCRIPT_ARG_ANSWERS  JSON {question: answer} chosen by the human
+ *   NAUKRI_COOKIES      JSON cookie object
  */
 
 import { launchBrowser } from '../utils/browser.js'
 import { reportFail, reportOk } from '../utils/report.js'
 
 const URL = (process.env.SCRIPT_ARG_URL || '').trim()
-const ANSWERS = (() => {
+const PROFILE = (() => {
   try {
-    const value = JSON.parse(process.env.SCRIPT_ARG_ANSWERS || '[]')
-    return Array.isArray(value) ? value.map((item) => String(item)) : []
+    const value = JSON.parse(process.env.SCRIPT_ARG_PROFILE || '{}')
+    return value && typeof value === 'object' ? value : {}
+  } catch {
+    return {}
+  }
+})()
+const HUMAN_ANSWERS = (() => {
+  try {
+    const value = JSON.parse(process.env.SCRIPT_ARG_ANSWERS || '{}')
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+    return Object.entries(value)
+      .map(([question, answer]) => ({
+        question: clean(question),
+        answer: clean(answer),
+      }))
+      .filter((item) => item.question && item.answer)
   } catch {
     return []
   }
 })()
-const HARD_DEADLINE_MS = 240000
+const HARD_DEADLINE_MS = 300000
 const watchdog = setTimeout(() => {
   reportFail('TIMEOUT', 'Naukri apply did not finish in time')
   process.exit(1)
 }, HARD_DEADLINE_MS)
+
+function clean(value) {
+  return String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
 function storedCookies() {
   try {
@@ -40,119 +67,282 @@ function storedCookies() {
   }
 }
 
-const bodyText = (page) =>
-  page
+async function bodyText(page) {
+  return page
     .locator('body')
     .innerText()
-    .then((value) => value.replace(/\s+/g, ' ').trim())
+    .then((value) => clean(value))
     .catch(() => '')
-
-async function questionText(page, fallback) {
-  for (const selector of ['[role="dialog"]', '[class*="modal" i]', '[class*="chat" i]']) {
-    const locator = page.locator(selector).first()
-    const count = await locator.count().catch(() => 0)
-    if (!count) continue
-    const text = (await locator.innerText().catch(() => ''))
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (text.length > 10) return text.slice(0, 1800)
-  }
-  return fallback.slice(0, 1800)
 }
 
-async function visibleButton(page, patterns) {
-  // Naukri renders its Save/Submit controls as divs, not <button>, so include
-  // the class names it uses as well as normal buttons.
-  const buttons = page.locator(
-    'button, [role="button"], a, div[class*="sendMsgbtn"], div[class*="btn" i]',
-  )
-  const count = await buttons.count().catch(() => 0)
-  for (let index = 0; index < count; index += 1) {
-    const item = buttons.nth(index)
-    const visible = await item.isVisible().catch(() => false)
-    if (!visible) continue
-    const label = ((await item.innerText().catch(() => '')) || '').replace(/\s+/g, ' ').trim()
-    if (!label) continue
-    if (patterns.some((pattern) => pattern.test(label))) return item
-  }
-  return null
+/** Naukri swaps Apply for this badge once an application exists. */
+async function isApplied(page) {
+  return (await page.locator('.already-applied').count().catch(() => 0)) > 0
 }
 
-async function answerButton(page, answer) {
-  const escaped = String(answer).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const locator = page
-    .locator('button, [role="button"], [role="radio"], label')
-    .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') })
-    .first()
-  const count = await locator.count().catch(() => 0)
-  if (!count) return null
-  const visible = await locator.isVisible().catch(() => false)
-  return visible ? locator : null
+async function loginWall(page) {
+  if (/\/nlogin\//i.test(page.url())) return true
+  return (await page.locator('input[type="password"]').count().catch(() => 0)) > 0
 }
 
-async function fillAnswer(page, answer) {
-  // Naukri uses custom radio rows; clicking the label does not always fire the
-  // app's change handler, so check the real radio input first.
-  const radios = page.locator('input[type="radio"]')
-  const radioCount = await radios.count().catch(() => 0)
-  for (let index = 0; index < radioCount; index += 1) {
-    const radio = radios.nth(index)
-    const value = (
-      (await radio.getAttribute('value')) ||
-      (await radio.getAttribute('aria-label')) ||
-      ''
-    ).trim()
-    if (value.toLowerCase() === String(answer).trim().toLowerCase()) {
-      await radio.check({ timeout: 6000, force: true }).catch(() => {})
-      return true
+/** Everything the script needs to know about Naukri's current question. */
+async function drawerState(page) {
+  return page.evaluate(() => {
+    const norm = (value) => String(value || '').replace(/\s+/g, ' ').trim()
+    const drawer = document.querySelector('.chatbot_Drawer')
+    if (!drawer) {
+      return { open: false, question: '', options: [], freeText: false, saveReady: false }
     }
-  }
-
-  const option = await answerButton(page, answer)
-  if (option) {
-    await option.click({ timeout: 6000 }).catch(() => {})
-    return true
-  }
-  // Native selects are common on older Naukri forms.
-  const selects = page.locator('select')
-  const count = await selects.count().catch(() => 0)
-  for (let index = 0; index < count; index += 1) {
-    const select = selects.nth(index)
-    const labels = await select.locator('option').allInnerTexts().catch(() => [])
-    const match = labels.find(
-      (label) => label.trim().toLowerCase() === String(answer).trim().toLowerCase(),
+    const messages = [...drawer.querySelectorAll('.botMsg span')]
+      .map((node) => norm(node.innerText))
+      .filter(Boolean)
+    const question = messages.length ? messages[messages.length - 1] : ''
+    const options = [...drawer.querySelectorAll('input[type="radio"]')].map((input) => {
+      const label = input.id
+        ? drawer.querySelector(`label[for="${input.id.replace(/"/g, '\\"')}"]`)
+        : null
+      return {
+        id: input.id || '',
+        value: input.value || '',
+        label: norm(label?.innerText) || input.value || '',
+      }
+    })
+    const freeBox = drawer.querySelector(
+      '[contenteditable="true"], textarea, input[type="text"]',
     )
-    if (match) {
-      await select.selectOption({ label: match }).catch(() => {})
+    const send = drawer.querySelector('.sendMsgbtn_container .send')
+    return {
+      open: true,
+      question,
+      options,
+      freeText: Boolean(freeBox),
+      saveReady: send ? !String(send.className).includes('disabled') : false,
+      drawerText: norm(drawer.innerText).slice(0, 2000),
+    }
+  })
+}
+
+function optionFor(state, value) {
+  const wanted = clean(value).toLowerCase()
+  if (!wanted) return null
+  return (
+    state.options.find((option) => clean(option.label).toLowerCase() === wanted) ||
+    state.options.find((option) => clean(option.value).toLowerCase() === wanted) ||
+    null
+  )
+}
+
+/** The human answer for exactly this question, if they already gave one. */
+function humanAnswerFor(state) {
+  const current = clean(state.question).toLowerCase()
+  if (!current) return ''
+  for (const item of HUMAN_ANSWERS) {
+    const asked = clean(item.question).toLowerCase()
+    if (!asked) continue
+    const askedQuestion = asked.split('options:')[0].trim()
+    if (
+      askedQuestion === current ||
+      askedQuestion.includes(current) ||
+      current.includes(askedQuestion)
+    ) {
+      return item.answer
+    }
+  }
+  return ''
+}
+
+/** Answer the questions that are plain profile facts, without guessing. */
+function autoAnswer(state) {
+  const question = clean(state.question).toLowerCase()
+  const has = (value) => Boolean(optionFor(state, value))
+  const experienced = Number(PROFILE.experience_months || 0) >= 12
+
+  if (/year of (passed|passing)|passout|pass out|graduation year|year of graduation|batch/.test(question)) {
+    const year = String(PROFILE.graduation_year || '')
+    if (!year) return ''
+    if (!state.options.length) return year
+    return has(year) ? year : ''
+  }
+  if (/degree/.test(question)) {
+    if (state.options.length) {
+      const degree = clean(PROFILE.degree).toLowerCase()
+      if (degree) {
+        const match = state.options.find((option) => {
+          const label = clean(option.label).toLowerCase()
+          return label && (degree.includes(label) || label.includes(degree.split(' ')[0]))
+        })
+        if (match) return match.label
+      }
+      return ''
+    }
+    return clean(PROFILE.degree)
+  }
+  if (/qualification/.test(question)) {
+    if (has('UG')) return 'UG'
+    if (has('PG') && /post|master|m\.?\s?tech/i.test(clean(PROFILE.degree))) return 'PG'
+    return ''
+  }
+  if (/experience|experienc/.test(question)) {
+    if (has('No')) return experienced ? 'Yes' : 'No'
+    return ''
+  }
+  if (/\bpf\b|provident fund/.test(question)) {
+    if (has('No')) return experienced ? 'Yes' : 'No'
+    return ''
+  }
+  if (/relocat|willing to (travel|relocate|move)|shift/.test(question)) {
+    if (has('Yes')) return PROFILE.willing_to_relocate ? 'Yes' : 'No'
+    return ''
+  }
+  if (/notice period/.test(question)) {
+    if (has('Immediate')) return 'Immediate'
+    if (!state.options.length) return 'Immediate'
+    return ''
+  }
+  if (/cgpa|percentage|marks/.test(question) && !state.options.length) {
+    return clean(PROFILE.cgpa)
+  }
+  if (/current location|location|city/.test(question) && !state.options.length) {
+    return clean(PROFILE.location)
+  }
+  return ''
+}
+
+async function chooseOption(page, option) {
+  if (!option) return false
+  if (option.id) {
+    const label = page
+      .locator(`.chatbot_Drawer label[for="${option.id.replace(/"/g, '\\"')}"]`)
+      .first()
+    if (await label.count().catch(() => 0)) {
+      await label.click({ timeout: 8000, force: true }).catch(() => {})
       return true
     }
+  }
+  const radio = page
+    .locator(`.chatbot_Drawer input[type="radio"][value="${option.value.replace(/"/g, '\\"')}"]`)
+    .first()
+  if (await radio.count().catch(() => 0)) {
+    await radio.click({ timeout: 8000, force: true }).catch(() => {})
+    return true
   }
   return false
 }
 
+async function typeAnswer(page, answer) {
+  const box = page
+    .locator(
+      '.chatbot_Drawer [contenteditable="true"], .chatbot_Drawer textarea, .chatbot_Drawer input[type="text"]',
+    )
+    .first()
+  if (!(await box.count().catch(() => 0))) return false
+  await box.click({ timeout: 8000, force: true }).catch(() => {})
+  await box.fill(answer).catch(() => {})
+  return true
+}
+
+async function saveEnabled(page) {
+  return page
+    .locator('.sendMsgbtn_container .send')
+    .first()
+    .evaluate((node) => !String(node.className).includes('disabled'))
+    .catch(() => false)
+}
+
+/** Click the drawer's own Save. Never the page's "Save job" bookmark. */
+async function clickSave(page) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (await saveEnabled(page)) break
+    await page.waitForTimeout(250)
+  }
+  const save = page.locator('.sendMsgbtn_container .sendMsg').first()
+  if (!(await save.count().catch(() => 0))) return false
+  await save.click({ timeout: 8000, force: true }).catch(() => {})
+  return true
+}
+
+function successText(text) {
+  return /you have successfully applied|successfully applied to|application sent|applied successfully/i.test(
+    text,
+  )
+}
+
+function formattedQuestion(state) {
+  if (!state.question) return ''
+  if (!state.options.length) return state.question
+  const options = state.options.map((option) => clean(option.label)).filter(Boolean)
+  return `${state.question}\nOptions: ${options.join(' / ')}`
+}
+
+function review(state, message) {
+  return {
+    applied: false,
+    code: 'NEEDS_REVIEW',
+    message,
+    question: state.question || '',
+    options: state.options.map((option) => clean(option.label)).filter(Boolean),
+    questions: formattedQuestion(state),
+  }
+}
+
 async function run() {
-  delete process.env.BROWSER_CDP_ENDPOINT
   process.env.JOBPILOT_PROFILE_SUFFIX = `${process.env.JOBPILOT_PROFILE_SUFFIX || ''}-naukri`
   process.env.STEALTH_HEADLESS = '0'
   process.env.STEALTH_OFFSCREEN = '1'
   const { browser, context, page } = await launchBrowser({ withSession: false })
+
+  /** Report a result and persist the current Naukri cookies for the next run. */
+  async function finish(payload) {
+    let cookies = {}
+    if (payload.code !== 'LOGIN_REQUIRED') {
+      try {
+        for (const cookie of await context.cookies('https://www.naukri.com')) {
+          if (String(cookie.domain || '').includes('naukri')) cookies[cookie.name] = cookie.value
+        }
+      } catch {
+        cookies = {}
+      }
+    }
+    const extra = Object.keys(cookies).length ? { cookies } : {}
+    return reportOk({ ...payload, ...extra })
+  }
+
   try {
-    const cookies = storedCookies()
-    if (cookies.length) await context.addCookies(cookies).catch(() => {})
+    console.log(`[naukriApply] page ${page.url()}`)
 
+    // Use the visible window's own session first, so a manual sign-in is not
+    // thrown away. Only fall back to the stored cookies if it is logged out.
     await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {})
-    await page.waitForTimeout(7000)
+    await page.waitForTimeout(6000)
+    await page.bringToFront().catch(() => {})
+    if (await loginWall(page)) {
+      const cookies = storedCookies()
+      if (cookies.length) {
+        await context.addCookies(cookies).catch(() => {})
+        await page.goto(URL, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {})
+        await page.waitForTimeout(6000)
+      }
+    }
+    console.log(`[naukriApply] job page ${page.url()}`)
 
-    const text = await bodyText(page)
+    if (await loginWall(page)) {
+      return finish({
+        applied: false,
+        code: 'LOGIN_REQUIRED',
+        message: 'The Naukri session expired. Reconnect Naukri and sign in again.',
+      })
+    }
+
     if (await page.locator('.company-site-button').count().catch(() => 0)) {
-      return reportOk({
+      return finish({
         applied: false,
         code: 'EXTERNAL',
         message: 'This job applies on the company site.',
       })
     }
-    if (/already applied|applied on/i.test(text) && !/apply on company site/i.test(text)) {
-      return reportOk({
+
+    if (await isApplied(page)) {
+      return finish({
         applied: true,
         code: 'ALREADY_APPLIED',
         message: 'Naukri already shows this job as applied.',
@@ -161,141 +351,138 @@ async function run() {
 
     const applyButton = page.locator('.apply-button').first()
     const hasApply = await applyButton.count().catch(() => 0)
-    const button =
-      hasApply > 0
-        ? applyButton
-        : await visibleButton(page, [/^apply$/i, /^apply now$/i, /^apply for this job$/i])
-    if (!button) {
-      // A direct job stops showing Apply after it has been submitted. Check the
-      // applied history by Naukri job id before calling this a failure.
-      const jobId = (URL.match(/-(\d{6,})\/?$/) || [])[1] || ''
-      let inHistory = false
-      if (jobId) {
-        await page
-          .goto('https://www.naukri.com/myapply/historypage', {
-            waitUntil: 'domcontentloaded',
-            timeout: 45000,
-          })
-          .catch(() => {})
-        await page.waitForTimeout(6000)
-        inHistory = await page
-          .evaluate((id) => {
-            const links = [...document.querySelectorAll('a[href]')].map(
-              (item) => item.getAttribute('href') || '',
-            )
-            const text = document.body?.innerText || ''
-            return links.some((href) => href.includes(id)) || text.includes(id)
-          }, jobId)
-          .catch(() => false)
-      }
-      if (inHistory) {
-        return reportOk({
-          applied: true,
-          code: 'ALREADY_APPLIED',
-          message: 'Naukri applied history shows this application.',
+    const drawerBefore = await drawerState(page)
+
+    // A previous run may have left the question drawer open.
+    if (!drawerBefore.open) {
+      if (!hasApply) {
+        return finish({
+          applied: false,
+          code: 'NO_APPLY',
+          message: 'No direct Naukri apply button was found.',
         })
       }
-      return reportOk({
-        applied: false,
-        code: 'NO_APPLY',
-        message: 'No direct Naukri apply button was found.',
-      })
+      await applyButton.click({ timeout: 10000, force: true }).catch(() => {})
+      await page.waitForTimeout(5000)
     }
 
-    await button.click({ timeout: 8000 }).catch(() => {})
-    await page.waitForTimeout(5000)
-    const afterApply = await bodyText(page)
+    for (let round = 0; round < 12; round += 1) {
+      if (await loginWall(page)) {
+        return finish({
+          applied: false,
+          code: 'LOGIN_REQUIRED',
+          message: 'The Naukri session expired. Reconnect Naukri and sign in again.',
+        })
+      }
+      const state = await drawerState(page)
+      const text = await bodyText(page)
 
-    if (/already applied|application sent|successfully applied|applied successfully/i.test(afterApply)) {
-      return reportOk({
-        applied: true,
-        code: 'APPLIED',
-        message: 'Naukri confirms the application.',
-        questions: await questionText(page, afterApply),
-      })
-    }
+      if (!state.open) {
+        if ((await isApplied(page)) || successText(text)) {
+          return finish({
+            applied: true,
+            code: 'APPLIED',
+            message: 'Naukri confirms the application.',
+          })
+        }
+        return finish({
+          applied: false,
+          code: 'NEEDS_REVIEW',
+          message: 'Naukri did not show a clear submit step.',
+          questions: text.slice(0, 1500),
+        })
+      }
 
-    if (ANSWERS.length) {
-      // The human reviewed the question and chose the answers in JobPilot.
-      for (const answer of ANSWERS) {
-        if (await fillAnswer(page, answer)) {
-          await page.waitForTimeout(500)
+      if (successText(state.drawerText) && !state.question) {
+        return finish({
+          applied: true,
+          code: 'APPLIED',
+          message: 'Naukri confirms the application.',
+        })
+      }
+
+      if (!state.question && !state.options.length && !state.freeText) {
+        return finish(review(state, 'Naukri opened a step that needs you.'))
+      }
+
+      const human = humanAnswerFor(state)
+      const automatic = human ? '' : autoAnswer(state)
+      const answer = human || automatic
+      if (!answer) {
+        return finish(review(state, 'Naukri asks a question that needs your answer.'))
+      }
+
+      let accepted = false
+      if (state.options.length) {
+        const option = optionFor(state, answer)
+        if (!option) {
+          return finish(
+            review(state, `Naukri does not offer "${answer}" for this question. Pick one of its options.`),
+          )
+        }
+        accepted = await chooseOption(page, option)
+      } else if (state.freeText) {
+        accepted = await typeAnswer(page, answer)
+      }
+
+      if (!accepted) {
+        return finish(review(state, 'Naukri did not accept the answer automatically.'))
+      }
+
+      await page.waitForTimeout(500)
+      if (!(await saveEnabled(page))) {
+        return finish(review(state, 'Naukri did not enable Save after the answer.'))
+      }
+      if (!(await clickSave(page))) {
+        return finish(review(state, 'Naukri did not show its Save button.'))
+      }
+
+      // Wait for the next question or the applied badge.
+      let changed = false
+      let finished = false
+      for (let wait = 0; wait < 30; wait += 1) {
+        await page.waitForTimeout(500)
+        if (await isApplied(page)) {
+          finished = true
+          break
+        }
+        const next = await drawerState(page)
+        const pageText = await bodyText(page)
+        if (!next.open) {
+          finished = true
+          break
+        }
+        if (successText(next.drawerText) || successText(pageText)) {
+          finished = true
+          break
+        }
+        if (
+          next.question !== state.question ||
+          next.options.length !== state.options.length ||
+          next.options.some((option, index) => option.label !== state.options[index]?.label)
+        ) {
+          changed = true
+          break
         }
       }
-      const save = await visibleButton(page, [
-        /^save$/i,
-        /^submit$/i,
-        /^next$/i,
-        /^apply$/i,
-      ])
-      if (save) {
-        await save.click({ timeout: 6000 }).catch(() => {})
-        await page.waitForTimeout(5000)
-      }
-      const afterAnswer = await bodyText(page)
-      if (
-        /already applied|application sent|successfully applied|applied successfully/i.test(
-          afterAnswer,
-        )
-      ) {
-        return reportOk({
-          applied: true,
-          code: 'APPLIED',
-          message: 'Naukri confirms the application.',
-          questions: await questionText(page, afterAnswer),
-        })
-      }
-      return reportOk({
-        applied: false,
-        code: 'NEEDS_REVIEW',
-        message: 'Naukri still asks for more details.',
-        questions: await questionText(page, afterAnswer),
-      })
-    }
 
-    const questionFields = await page
-      .locator('textarea, input[type="text"], input[type="number"], input[type="radio"]')
-      .count()
-      .catch(() => 0)
-    const questions = /questionnaire|answer the following|please answer|chat/i.test(afterApply)
-    if (questionFields > 0 || questions) {
-      return reportOk({
-        applied: false,
-        code: 'NEEDS_REVIEW',
-        message: 'Naukri opened questions that need your answers.',
-        questions: await questionText(page, afterApply),
-      })
-    }
-
-    const submit = await visibleButton(page, [/^submit$/i, /^apply$/i, /^send application$/i])
-    if (submit) {
-      await submit.click({ timeout: 8000 }).catch(() => {})
-      await page.waitForTimeout(5000)
-      const finalText = await bodyText(page)
-      if (/already applied|application sent|successfully applied|applied successfully/i.test(finalText)) {
-        return reportOk({
+      if (finished) {
+        return finish({
           applied: true,
           code: 'APPLIED',
           message: 'Naukri confirms the application.',
         })
       }
-      return reportOk({
-        applied: false,
-        code: 'NEEDS_REVIEW',
-        message: 'The apply flow did not confirm. Open the job and finish it.',
-        questions: finalText.slice(0, 1500),
-      })
+      if (!changed) {
+        return finish(review(await drawerState(page), 'Naukri did not advance after the answer.'))
+      }
     }
 
-    return reportOk({
-      applied: false,
-      code: 'NEEDS_REVIEW',
-      message: 'Naukri did not show a clear submit step.',
-      questions: afterApply.slice(0, 1500),
-    })
+    return finish(review(await drawerState(page), 'Naukri still has more questions.'))
   } catch (err) {
     reportFail(err.code || 'ERROR', err.message)
     process.exitCode = 1
+    throw err
   } finally {
     await browser?.close().catch(() => {})
     clearTimeout(watchdog)
@@ -304,8 +491,18 @@ async function run() {
 
 if (!URL) {
   reportFail('VALIDATION', 'SCRIPT_ARG_URL is required')
-  process.exitCode = 1
   clearTimeout(watchdog)
+  process.exit(1)
 } else {
-  run().finally(() => clearTimeout(watchdog))
+  run()
+    .then(() => {
+      clearTimeout(watchdog)
+      // When attached over CDP the DevTools socket is still open, so Node would
+      // stay alive after the RESULT_JSON line. Exit now that the result is out.
+      setTimeout(() => process.exit(0), 150)
+    })
+    .catch(() => {
+      clearTimeout(watchdog)
+      process.exit(1)
+    })
 }
