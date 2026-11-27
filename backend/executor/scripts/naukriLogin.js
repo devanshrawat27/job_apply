@@ -52,12 +52,29 @@ async function confirmSession(page) {
   }
 }
 
+async function centerWindow(context, page) {
+  // The Naukri search profile remembers the off-screen search position. Bring
+  // the one-time sign-in window back to the middle of the desktop.
+  try {
+    await page.bringToFront()
+    const session = await context.newCDPSession(page)
+    const { windowId } = await session.send('Browser.getWindowForTarget')
+    await session.send('Browser.setWindowBounds', {
+      windowId,
+      bounds: { left: 120, top: 80, width: 1280, height: 900, windowState: 'normal' },
+    })
+  } catch (err) {
+    console.log(`could not center the Naukri window: ${err.message}`)
+  }
+}
+
 async function login() {
   delete process.env.BROWSER_CDP_ENDPOINT
   process.env.JOBPILOT_PROFILE_SUFFIX = `${process.env.JOBPILOT_PROFILE_SUFFIX || ''}-naukri`
   process.env.STEALTH_HEADLESS = '0'
   delete process.env.STEALTH_OFFSCREEN
   const { browser, context, page } = await launchBrowser({ withSession: false })
+  await centerWindow(context, page)
 
   try {
     await page
