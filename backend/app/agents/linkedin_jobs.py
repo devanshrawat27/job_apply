@@ -40,6 +40,7 @@ LEVEL_NUMBER_RE = re.compile(
 # The work has to be a build job, not a sales/support job with "engineer" in it.
 TECH_TITLE_RE = re.compile(
     r"\b(software|developer|engineer|engineering|sde|programmer|full[ -]?stack|"
+    r"mern|mean|mongodb|express|nestjs|"
     r"front[ -]?end|back[ -]?end|web|mobile|android|ios|python|java|javascript|"
     r"typescript|react|node|golang|rust|php|\.net|data|machine learning|ml|ai|"
     r"artificial intelligence|genai|llm|devops|cloud|platform|qa|test automation|"

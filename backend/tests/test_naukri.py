@@ -71,6 +71,30 @@ def test_fresher_remote_card_passes():
     assert verdict["required_experience_months"] == 0
 
 
+def test_mern_fresher_is_recognised():
+    profile = Profile(
+        id=2,
+        full_name="Dev Rawat",
+        seniority="fresher",
+        experience_months=4,
+        current_role="SDE Intern",
+        skills=["react", "node.js", "mongodb", "express", "javascript"],
+        target_roles=["Full Stack Developer", "MERN Stack Developer"],
+        country="India",
+        location="Dehradun",
+        domain="tech",
+        willing_to_relocate=True,
+    )
+    card = {
+        **CARD,
+        "title": "MERN Fresher",
+        "snippet": "MERN stack fresher wanted. Build React and Node apps with MongoDB.",
+        "skills": ["React", "Node.js", "MongoDB", "Express"],
+    }
+    verdict = naukri.assess(profile, card)
+    assert verdict["ok"] is True, verdict["reason"]
+
+
 def test_senior_and_experienced_cards_are_rejected():
     senior = {**CARD, "title": "Senior Python Developer"}
     assert naukri.assess(PROFILE, senior)["ok"] is False
