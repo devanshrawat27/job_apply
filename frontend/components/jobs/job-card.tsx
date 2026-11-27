@@ -188,8 +188,8 @@ export function JobCard({
 
   async function openNaukriWindow() {
     try {
-      await api.naukriWindow()
-      toast.success('Naukri window opened')
+      await api.naukriWindow(job.post_url || undefined)
+      toast.success('Opening this job in the Naukri window')
     } catch (err) {
       toast.error((err as Error).message)
     }

@@ -91,6 +91,23 @@ async function answerButton(page, answer) {
 }
 
 async function fillAnswer(page, answer) {
+  // Naukri uses custom radio rows; clicking the label does not always fire the
+  // app's change handler, so check the real radio input first.
+  const radios = page.locator('input[type="radio"]')
+  const radioCount = await radios.count().catch(() => 0)
+  for (let index = 0; index < radioCount; index += 1) {
+    const radio = radios.nth(index)
+    const value = (
+      (await radio.getAttribute('value')) ||
+      (await radio.getAttribute('aria-label')) ||
+      ''
+    ).trim()
+    if (value.toLowerCase() === String(answer).trim().toLowerCase()) {
+      await radio.check({ timeout: 6000, force: true }).catch(() => {})
+      return true
+    }
+  }
+
   const option = await answerButton(page, answer)
   if (option) {
     await option.click({ timeout: 6000 }).catch(() => {})

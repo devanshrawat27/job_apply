@@ -192,7 +192,11 @@ export const api = {
   disconnectLinkedIn: (id: number) =>
     mutate<{ deleted: boolean }>(`/linkedin/${id}`, { method: 'DELETE' }),
   naukriAccount: () => request<NaukriAccount | null>('/naukri'),
-  naukriWindow: () => mutate<{ ok: boolean }>('/naukri/window', { method: 'POST' }),
+  naukriWindow: (url?: string) =>
+    mutate<{ ok: boolean }>('/naukri/window', {
+      method: 'POST',
+      body: JSON.stringify({ url: url || '' }),
+    }),
   connectNaukri: (email: string) =>
     mutate<NaukriAccount>('/naukri/connect', {
       method: 'POST',

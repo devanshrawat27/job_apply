@@ -145,9 +145,31 @@ exit 1
         return False
 
 
-def open_window(url: str = "https://www.naukri.com/myapply/historypage") -> dict:
-    """Open (or focus) the logged-in Naukri Chrome window."""
-    if _focus_existing_window():
+def _close_profile_chrome() -> None:
+    if os.name != "nt":
+        return
+    script = (
+        "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" | "
+        "Where-Object { $_.CommandLine -like '*browser-profile-naukri*' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+    )
+    try:
+        subprocess.run(
+            ["powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True,
+            timeout=15,
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def open_window(
+    url: str = "https://www.naukri.com/myapply/historypage", *, replace: bool = False
+) -> dict:
+    """Open (or focus) the logged-in Naukri Chrome window at ``url``."""
+    if replace:
+        _close_profile_chrome()
+    elif _focus_existing_window():
         return {"ok": True, "reused": True}
 
     chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")

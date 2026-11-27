@@ -47,12 +47,22 @@ def connect(
 
 
 @router.post("/window")
-def open_window(user: CurrentUser = None, db: Session = Depends(get_db)) -> dict:
+def open_window(
+    payload: dict | None = None,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
+) -> dict:
     """Bring the logged-in Naukri Chrome window on screen."""
     account = naukri_accounts.active_account(db, _uid(user))
     if account is None:
         raise HTTPException(status_code=409, detail="Connect Naukri first")
-    result = naukri_accounts.open_window()
+    requested = str((payload or {}).get("url") or "").strip()
+    if requested and not requested.startswith("https://www.naukri.com/"):
+        raise HTTPException(status_code=400, detail="only naukri.com URLs can be opened")
+    result = naukri_accounts.open_window(
+        requested or "https://www.naukri.com/myapply/historypage",
+        replace=bool(requested),
+    )
     if not result.get("ok"):
         raise HTTPException(status_code=500, detail=result.get("error") or "could not open Chrome")
     return {"ok": True}
