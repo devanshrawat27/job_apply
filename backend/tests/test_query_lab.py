@@ -52,7 +52,28 @@ def test_cold_start_tries_several_keywords(db):
 
 def test_good_keyword_becomes_active_and_bad_one_is_retired(db):
     keywords = query_lab.select_keywords(db, db.get(Profile, 1))
-    winner, loser = keywords[0], keywords[1]
+    winner = keywords[0]
+    # A profile role is a seed and is protected; test the retire rule on a
+    # different, curated candidate instead.
+    loser = next(
+        (
+            row
+            for row in keywords
+            if row is not winner and (row.source or "") != "seed"
+        ),
+        None,
+    )
+    if loser is None:
+        loser = SearchQuery(
+            keyword="react developer",
+            status="candidate",
+            source="curated",
+            uses=1,
+        )
+        db.add(loser)
+        db.commit()
+        keywords.append(loser)
+    loser.source = loser.source or "curated"
     winner.uses = 2  # it has now been tried twice
     loser.uses = 1
 
@@ -86,7 +107,12 @@ def test_good_keyword_becomes_active_and_bad_one_is_retired(db):
     # curated seed list.
     chosen = query_lab.select_keywords(db, db.get(Profile, 1))
     assert loser.keyword not in {row.keyword for row in chosen}
-    assert sum(1 for row in db.scalars(select(SearchQuery)).all() if row.keyword == loser.keyword) == 1
+    rows = [
+        row
+        for row in db.scalars(select(SearchQuery)).all()
+        if row.keyword == loser.keyword
+    ]
+    assert any(row.status == "retired" for row in rows)
 
 
 def test_active_keywords_are_reused(db, monkeypatch):
@@ -148,10 +174,49 @@ def test_record_results_does_not_retire_a_pinned_keyword(db):
     assert row.pinned is True
 
 
+def test_optimizer_keeps_a_profile_role_seed(db):
+    row = SearchQuery(
+        keyword="Data Scientist",
+        status="active",
+        source="seed",
+        uses=50,
+        posts_seen=0,
+        posts_relevant=0,
+        score=0.0,
+    )
+    db.add(row)
+    db.commit()
+
+    query_lab.optimize(db)
+    db.refresh(row)
+    assert row.status != "retired"
+
+
+def test_record_results_keeps_a_profile_role_seed(db):
+    row = SearchQuery(
+        keyword="Data Scientist",
+        status="active",
+        source="seed",
+        uses=10,
+        posts_seen=20,
+        posts_relevant=0,
+        score=0.05,
+    )
+    db.add(row)
+    db.commit()
+
+    query_lab.record_results(
+        db, [row], {"Data Scientist": {"seen": 10, "relevant": 0}}
+    )
+    db.refresh(row)
+    assert row.status != "retired"
+
+
 def test_optimizer_retires_a_dead_pinned_keyword(db):
     dead = SearchQuery(
         keyword="full stack intern",
         status="active",
+        source="curated",
         pinned=True,
         uses=50,
         posts_seen=1,

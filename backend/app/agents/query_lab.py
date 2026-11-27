@@ -301,12 +301,15 @@ def optimize(db: Session, user_id: int | None = None) -> int:
         if row.status == "retired":
             # A keyword that was retired on its lifetime average can still be
             # bringing recent posts. Bring it back into the pool instead of
-            # losing a productive broad term forever.
-            if int(recent.get(row.keyword.lower(), {}).get("relevant") or 0) >= 2:
+            # losing a productive broad term forever. Roles taken from the
+            # human's profile are never left retired.
+            if (row.source or "") == "seed" or int(
+                recent.get(row.keyword.lower(), {}).get("relevant") or 0
+            ) >= 2:
                 row.status = "active"
                 row.pinned = False
                 changed += 1
-                logger.info("revived keyword %r: recent posts found", row.keyword)
+                logger.info("revived keyword %r", row.keyword)
             continue
         seen = int(row.posts_seen or 0)
         relevant = int(row.posts_relevant or 0)
@@ -316,6 +319,13 @@ def optimize(db: Session, user_id: int | None = None) -> int:
 
         dead = (uses >= 20 and seen <= 1) or (seen >= 20 and relevant == 0)
         if dead:
+            if (row.source or "") == "seed":
+                # A role from the human's profile is never removed by the
+                # optimizer, even on a bad run.
+                if row.status != "active":
+                    row.status = "active"
+                    changed += 1
+                continue
             if row.pinned:
                 row.pinned = False
                 logger.info("unpinned dead keyword %r", row.keyword)
@@ -557,6 +567,7 @@ def record_results(db: Session, keywords: list[SearchQuery], per_keyword: dict[s
             row.uses >= 3
             and row.score < RETIRE_SCORE
             and not bool(getattr(row, "pinned", False))
+            and (row.source or "") != "seed"
             and recent_relevant == 0
         ):
             logger.info("retiring weak keyword %r (score %.2f)", row.keyword, row.score)
