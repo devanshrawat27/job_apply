@@ -254,13 +254,21 @@ def naukri_preview(
 
 @router.post("/{job_id}/naukri-apply", response_model=JobOut)
 def naukri_apply(
-    job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)
+    job_id: int,
+    payload: dict | None = None,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
 ) -> JobPost:
     """Auto-apply on Naukri for a direct-apply job the human approved."""
     job = _owned(db, job_id, user)
     if job.status in ("sent", "sending"):
         raise HTTPException(status_code=409, detail="this job is already applied")
-    result = pipeline.apply_naukri(db, job)
+    answers = {}
+    if isinstance(payload, dict):
+        raw = payload.get("answers")
+        if isinstance(raw, dict):
+            answers = {str(key): str(value) for key, value in raw.items() if str(value).strip()}
+    result = pipeline.apply_naukri(db, job, answers=answers)
     code = str(result.get("code") or "")
     if not result.get("ok") and code in ("NOT_NAUKRI", "NO_ACCOUNT", "NO_URL"):
         status = 409 if code == "NO_ACCOUNT" else 400

@@ -85,6 +85,8 @@ export function JobCard({
   const [showLogs, setShowLogs] = useState(false)
   const [error, setError] = useState('')
   const [naukriPreview, setNaukriPreview] = useState<NaukriPreview | null>(null)
+  const [naukriAnswer, setNaukriAnswer] = useState('')
+  const [cardAnswer, setCardAnswer] = useState('')
 
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
   const isLinkedIn = job.source === 'linkedin'
@@ -127,8 +129,17 @@ export function JobCard({
   async function openNaukriPreview() {
     setBusy('naukri-preview')
     setError('')
+    setNaukriAnswer('')
     try {
-      setNaukriPreview(await api.naukriPreview(job.id))
+      const preview = await api.naukriPreview(job.id)
+      setNaukriPreview(preview)
+      const years = Array.from(new Set(preview.questions.match(/\b20\d{2}\b/g) || []))
+      if (
+        /graduat|passout|batch|year of/i.test(preview.questions) &&
+        years.includes(String(preview.profile.graduation_year))
+      ) {
+        setNaukriAnswer(String(preview.profile.graduation_year))
+      }
     } catch (err) {
       setError((err as Error).message)
       toast.error((err as Error).message)
@@ -141,8 +152,13 @@ export function JobCard({
     setBusy('naukri-apply')
     setError('')
     try {
-      const updated = await api.naukriApply(job.id)
+      const answers =
+        naukriPreview?.questions && naukriAnswer
+          ? { [naukriPreview.questions.slice(0, 200)]: naukriAnswer }
+          : undefined
+      const updated = await api.naukriApply(job.id, answers)
       setNaukriPreview(null)
+      setNaukriAnswer('')
       await onChange()
       if (updated.status === 'sent') {
         toast.success(
@@ -154,6 +170,31 @@ export function JobCard({
         toast.info('This job applies on the company site - it is now in Apply links')
       } else {
         toast.warning(updated.decision_reason || 'Naukri needs your review')
+      }
+    } catch (err) {
+      setError((err as Error).message)
+      toast.error((err as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function submitCardAnswer() {
+    setBusy('naukri-answer')
+    setError('')
+    try {
+      const answers = {
+        [(job.last_error || 'question').slice(0, 200)]: cardAnswer.trim(),
+      }
+      const updated = await api.naukriApply(job.id, answers)
+      setCardAnswer('')
+      await onChange()
+      if (updated.status === 'sent') {
+        toast.success('Applied on Naukri')
+      } else if (updated.status === 'new' && updated.apply_url) {
+        toast.info('This job applies on the company site - it is now in Apply links')
+      } else {
+        toast.warning(updated.decision_reason || 'Naukri still needs more details')
       }
     } catch (err) {
       setError((err as Error).message)
@@ -203,6 +244,19 @@ export function JobCard({
     }
   }
 
+  const previewYears = naukriPreview
+    ? Array.from(new Set(naukriPreview.questions.match(/\b20\d{2}\b/g) || []))
+    : []
+  const askYear =
+    Boolean(naukriPreview) &&
+    previewYears.length > 0 &&
+    /graduat|passout|batch|year of/i.test(naukriPreview?.questions || '')
+
+  const cardQuestion = job.last_error || ''
+  const cardYears = Array.from(new Set(cardQuestion.match(/\b20\d{2}\b/g) || []))
+  const cardAskYear =
+    /graduat|passout|batch|year of/i.test(cardQuestion) && cardYears.length > 0
+
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
       {needsYou ? (
@@ -225,9 +279,39 @@ export function JobCard({
       {isNaukri && needsYou && job.last_error ? (
         <div className="border-b border-border bg-muted/20 px-4 py-2.5">
           <p className="text-[11px] font-medium text-foreground">Naukri asks</p>
-          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+          <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
             {job.last_error}
           </p>
+          {cardAskYear ? (
+            <select
+              value={cardAnswer}
+              onChange={(event) => setCardAnswer(event.target.value)}
+              className="mt-2 h-8 rounded-md border border-border bg-background px-2 text-xs"
+            >
+              <option value="">Select your graduation year</option>
+              {cardYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={cardAnswer}
+              onChange={(event) => setCardAnswer(event.target.value)}
+              placeholder="Type your answer"
+              className="mt-2 h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
+            />
+          )}
+          <Button
+            size="sm"
+            className="mt-2"
+            disabled={busy !== null || !cardAnswer.trim()}
+            onClick={() => void submitCardAnswer()}
+          >
+            {busy === 'naukri-answer' ? <Loader2Icon className="animate-spin" /> : null}
+            Submit answer &amp; apply
+          </Button>
         </div>
       ) : null}
 
@@ -775,6 +859,38 @@ export function JobCard({
                 <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                   {naukriPreview.questions}
                 </p>
+                {askYear ? (
+                  <label className="mt-2 flex flex-col gap-1 text-[11px] font-medium">
+                    Your answer
+                    <select
+                      value={naukriAnswer}
+                      onChange={(event) => setNaukriAnswer(event.target.value)}
+                      className="h-9 rounded-md border border-border bg-background px-2 text-xs"
+                    >
+                      <option value="">Select your graduation year</option>
+                      {previewYears.map((year) => (
+                        <option key={year} value={year}>
+                          {year}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <input
+                    value={naukriAnswer}
+                    onChange={(event) => setNaukriAnswer(event.target.value)}
+                    placeholder="Type your answer"
+                    className="mt-2 h-9 w-full rounded-md border border-border bg-background px-2 text-xs"
+                  />
+                )}
+                {askYear &&
+                !previewYears.includes(String(naukriPreview.profile.graduation_year)) ? (
+                  <p className="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                    Your profile says {naukriPreview.profile.graduation_year}, which is not one of
+                    Naukri&apos;s options ({previewYears.join(' / ')}). Pick the option the
+                    recruiter will accept.
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -787,7 +903,14 @@ export function JobCard({
               <Button variant="ghost" size="sm" onClick={() => setNaukriPreview(null)}>
                 Cancel
               </Button>
-              <Button size="sm" disabled={busy !== null} onClick={() => void confirmNaukriApply()}>
+              <Button
+                size="sm"
+                disabled={
+                  busy !== null ||
+                  (Boolean(naukriPreview.questions) && !naukriAnswer.trim())
+                }
+                onClick={() => void confirmNaukriApply()}
+              >
                 {busy === 'naukri-apply' ? (
                   <Loader2Icon className="animate-spin" />
                 ) : (

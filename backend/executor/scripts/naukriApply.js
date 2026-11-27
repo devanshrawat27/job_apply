@@ -14,6 +14,14 @@ import { launchBrowser } from '../utils/browser.js'
 import { reportFail, reportOk } from '../utils/report.js'
 
 const URL = (process.env.SCRIPT_ARG_URL || '').trim()
+const ANSWERS = (() => {
+  try {
+    const value = JSON.parse(process.env.SCRIPT_ARG_ANSWERS || '[]')
+    return Array.isArray(value) ? value.map((item) => String(item)) : []
+  } catch {
+    return []
+  }
+})()
 const HARD_DEADLINE_MS = 240000
 const watchdog = setTimeout(() => {
   reportFail('TIMEOUT', 'Naukri apply did not finish in time')
@@ -64,6 +72,41 @@ async function visibleButton(page, patterns) {
     if (patterns.some((pattern) => pattern.test(label))) return item
   }
   return null
+}
+
+async function answerButton(page, answer) {
+  const escaped = String(answer).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const locator = page
+    .locator('button, [role="button"], [role="radio"], label')
+    .filter({ hasText: new RegExp(`^\\s*${escaped}\\s*$`, 'i') })
+    .first()
+  const count = await locator.count().catch(() => 0)
+  if (!count) return null
+  const visible = await locator.isVisible().catch(() => false)
+  return visible ? locator : null
+}
+
+async function fillAnswer(page, answer) {
+  const option = await answerButton(page, answer)
+  if (option) {
+    await option.click({ timeout: 6000 }).catch(() => {})
+    return true
+  }
+  // Native selects are common on older Naukri forms.
+  const selects = page.locator('select')
+  const count = await selects.count().catch(() => 0)
+  for (let index = 0; index < count; index += 1) {
+    const select = selects.nth(index)
+    const labels = await select.locator('option').allInnerTexts().catch(() => [])
+    const match = labels.find(
+      (label) => label.trim().toLowerCase() === String(answer).trim().toLowerCase(),
+    )
+    if (match) {
+      await select.selectOption({ label: match }).catch(() => {})
+      return true
+    }
+  }
+  return false
 }
 
 async function run() {
@@ -119,6 +162,44 @@ async function run() {
         code: 'APPLIED',
         message: 'Naukri confirms the application.',
         questions: await questionText(page, afterApply),
+      })
+    }
+
+    if (ANSWERS.length) {
+      // The human reviewed the question and chose the answers in JobPilot.
+      for (const answer of ANSWERS) {
+        if (await fillAnswer(page, answer)) {
+          await page.waitForTimeout(500)
+        }
+      }
+      const save = await visibleButton(page, [
+        /^save$/i,
+        /^submit$/i,
+        /^next$/i,
+        /^apply$/i,
+      ])
+      if (save) {
+        await save.click({ timeout: 6000 }).catch(() => {})
+        await page.waitForTimeout(5000)
+      }
+      const afterAnswer = await bodyText(page)
+      if (
+        /already applied|application sent|successfully applied|applied successfully/i.test(
+          afterAnswer,
+        )
+      ) {
+        return reportOk({
+          applied: true,
+          code: 'APPLIED',
+          message: 'Naukri confirms the application.',
+          questions: await questionText(page, afterAnswer),
+        })
+      }
+      return reportOk({
+        applied: false,
+        code: 'NEEDS_REVIEW',
+        message: 'Naukri still asks for more details.',
+        questions: await questionText(page, afterAnswer),
       })
     }
 

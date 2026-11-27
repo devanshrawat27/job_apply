@@ -257,7 +257,11 @@ export const api = {
   markApplied: (id: number) => mutate<Job>(`/jobs/${id}/mark-applied`, { method: 'POST' }),
   retryDm: (id: number) => mutate<Job>(`/jobs/${id}/retry-dm`, { method: 'POST' }),
   naukriPreview: (id: number) => request<NaukriPreview>(`/jobs/${id}/naukri-preview`),
-  naukriApply: (id: number) => mutate<Job>(`/jobs/${id}/naukri-apply`, { method: 'POST' }),
+  naukriApply: (id: number, answers?: Record<string, string>) =>
+    mutate<Job>(`/jobs/${id}/naukri-apply`, {
+      method: 'POST',
+      body: JSON.stringify({ answers: answers || {} }),
+    }),
   job: (id: number) => request<Job>(`/jobs/${id}`),
   jobPeople: (id: number) => request<PeopleFinderResult>(`/jobs/${id}/people`),
   findJobPeople: (id: number) =>

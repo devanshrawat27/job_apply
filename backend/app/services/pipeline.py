@@ -7,6 +7,7 @@ and no second pipeline, on purpose.
 from __future__ import annotations
 
 import logging
+import json
 import re
 import threading
 from datetime import datetime, timedelta, timezone
@@ -2906,7 +2907,7 @@ def _apply_write_result(
 
 # ------------------------------------------------------------------ decision
 
-def apply_naukri(db: Session, job: JobPost) -> dict:
+def apply_naukri(db: Session, job: JobPost, answers: dict[str, str] | None = None) -> dict:
     """Run the Naukri apply flow for a reviewed direct-apply job."""
     if (job.source or "").lower() != "naukri":
         return {"ok": False, "code": "NOT_NAUKRI", "error": "not a Naukri job"}
@@ -2923,9 +2924,12 @@ def apply_naukri(db: Session, job: JobPost) -> dict:
     if not url:
         return {"ok": False, "code": "NO_URL", "error": "job has no Naukri URL"}
 
+    args: dict = {"url": url}
+    if answers:
+        args["answers"] = json.dumps([str(value) for value in answers.values() if str(value).strip()])
     result = executor.run_script(
         "naukri_apply",
-        {"url": url},
+        args,
         naukri_cookies=naukri_accounts.cookies(account),
         user_id=job.user_id,
         timeout=240,
