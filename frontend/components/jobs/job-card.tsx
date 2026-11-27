@@ -179,6 +179,15 @@ export function JobCard({
     }
   }
 
+  async function openNaukriWindow() {
+    try {
+      await api.naukriWindow()
+      toast.success('Naukri window opened')
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   async function submitCardAnswer() {
     setBusy('naukri-answer')
     setError('')
@@ -256,6 +265,9 @@ export function JobCard({
   const cardYears = Array.from(new Set(cardQuestion.match(/\b20\d{2}\b/g) || []))
   const cardAskYear =
     /graduat|passout|batch|year of/i.test(cardQuestion) && cardYears.length > 0
+  const naukriQuestionPending =
+    /answer the questions|naukri asks/i.test(job.decision_reason || '') ||
+    /kindly answer|what is your|questionnaire/i.test(cardQuestion)
 
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
@@ -276,7 +288,7 @@ export function JobCard({
         </div>
       ) : null}
 
-      {isNaukri && needsYou && job.last_error ? (
+      {isNaukri && needsYou && naukriQuestionPending && job.last_error ? (
         <div className="border-b border-border bg-muted/20 px-4 py-2.5">
           <p className="text-[11px] font-medium text-foreground">Naukri asks</p>
           <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
@@ -312,6 +324,25 @@ export function JobCard({
             {busy === 'naukri-answer' ? <Loader2Icon className="animate-spin" /> : null}
             Submit answer &amp; apply
           </Button>
+        </div>
+      ) : null}
+
+      {isNaukri && needsYou && !naukriQuestionPending && job.last_error ? (
+        <div className="border-b border-border bg-muted/20 px-4 py-2.5">
+          <p className="text-[11px] font-medium text-foreground">
+            Naukri couldn&apos;t start this application
+          </p>
+          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+            {job.last_error}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button size="sm" variant="outline" onClick={() => void openNaukriWindow()}>
+              Open Naukri
+            </Button>
+            <Button size="sm" onClick={() => void openNaukriPreview()}>
+              Retry
+            </Button>
+          </div>
         </div>
       ) : null}
 
