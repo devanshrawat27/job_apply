@@ -435,33 +435,50 @@ def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -
     if pinned_rows:
         chosen.append(pinned_rows[0])
 
-    # Fill with the keywords that produced the most recent relevant/usable jobs.
-    for row in active:
-        if len(chosen) >= MAX_KEYWORDS_PER_SCAN - 1:
-            break
+    # Always take the single best producer, then rotate the remaining good slots
+    # by least-recent use. This keeps the winners in play without firing the
+    # exact same three queries every 20 minutes and seeing only duplicates.
+    top_active = active[: max(6, MAX_KEYWORDS_PER_SCAN + 2)]
+    for row in top_active:
         if row not in chosen:
             chosen.append(row)
+            break
+    rotating = sorted(
+        [row for row in top_active if row not in chosen],
+        key=lambda row: (
+            row.last_used_at is not None,
+            row.last_used_at or datetime.min,
+            row.id,
+        ),
+    )
+    for row in rotating:
+        if len(chosen) >= MAX_KEYWORDS_PER_SCAN - 1:
+            break
+        chosen.append(row)
 
     # One exploration slot so a new keyword can still prove itself.
     exploration = next((row for row in exploration_pool if row not in chosen), None)
     if exploration is not None:
         chosen.append(exploration)
 
-    # Cold start / sparse pool: fill from candidates, best first.
+    # Cold start / sparse pool: fill from candidates, best first. Once there is
+    # a working active set, do not pad the scan with a tried-and-empty keyword
+    # just to reach four slots - three good queries beat three good + one dud.
+    fill_target = MAX_KEYWORDS_PER_SCAN if not active else MAX_KEYWORDS_PER_SCAN - 1
     for row in candidates:
-        if len(chosen) >= MAX_KEYWORDS_PER_SCAN:
+        if len(chosen) >= fill_target:
             break
         if row not in chosen:
             chosen.append(row)
 
-    if len(chosen) < MAX_KEYWORDS_PER_SCAN:
+    if len(chosen) < fill_target:
         for keyword in keyword_pool(profile):
             if keyword.lower() in known:
                 continue
             if not keyword_fits_profile(keyword, profile):
                 continue
             chosen.append(_add(db, rows, known, keyword, user_id, source="pool"))
-            if len(chosen) >= MAX_KEYWORDS_PER_SCAN:
+            if len(chosen) >= fill_target:
                 break
 
     chosen = chosen[:MAX_KEYWORDS_PER_SCAN]
