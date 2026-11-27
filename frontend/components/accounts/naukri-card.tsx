@@ -79,11 +79,17 @@ export function NaukriCard() {
     setRefreshing(true)
     try {
       const result = await api.naukriRefreshResume()
+      const details = [result.filename]
+      if (result.uploaded_on) details.push(result.uploaded_on)
+      if (result.summary_updated) details.push('profile summary updated')
+      else if (result.summary_note) details.push(result.summary_note)
       if (result.skipped) {
-        toast.info('Resume already has today’s date', { description: result.filename })
+        toast.info('Profile refreshed — resume already dated today', {
+          description: details.join(' · '),
+        })
       } else {
-        toast.success('Resume refreshed with today’s date', {
-          description: `${result.filename}${result.uploaded_on ? ` · ${result.uploaded_on}` : ''}`,
+        toast.success('Resume and profile refreshed', {
+          description: details.join(' · '),
         })
       }
     } catch (cause) {
@@ -170,8 +176,10 @@ export function NaukriCard() {
 
         {account && !replacing ? (
           <p className="text-[11px] text-muted-foreground">
-            Refresh resume adds today’s date to the resume file name and uploads it again. Your
-            profile summary and other details are not changed.
+            Refresh resume adds today’s date to the resume file name, uploads it again, and makes a
+            small wording change in the profile summary so Naukri shows the profile as updated. The
+            dated PDF is saved to <span className="font-medium">D:\resume naukri</span>. All other
+            details stay unchanged.
           </p>
         ) : null}
 

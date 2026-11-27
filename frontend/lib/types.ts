@@ -92,6 +92,8 @@ export interface NaukriResumeRefresh {
   uploaded_on: string
   skipped: boolean
   message: string
+  summary_updated: boolean
+  summary_note: string
 }
 
 export interface NaukriAccount {

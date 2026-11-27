@@ -271,6 +271,7 @@ def test_refresh_resume_returns_the_dated_name(db, monkeypatch):
                 "ok": True,
                 "filename": "Dev_Rawat_Resume_Software_Engineer_2026-11-27.pdf",
                 "uploaded_on": "Uploaded on Nov 27, 2026",
+                "summary_updated": True,
             },
         },
     )
@@ -279,6 +280,7 @@ def test_refresh_resume_returns_the_dated_name(db, monkeypatch):
     assert result["filename"].endswith(".pdf")
     assert "2026-11-27" in result["filename"]
     assert result["uploaded_on"].startswith("Uploaded on")
+    assert result["summary_updated"] is True
 
 
 def test_stale_naukri_jobs_leave_the_list(db):

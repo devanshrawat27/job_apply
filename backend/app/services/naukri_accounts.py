@@ -374,9 +374,12 @@ def refresh_resume(
         return {"ok": False, "code": "NO_PROFILE", "error": "Complete your profile first"}
 
     url = "https://www.naukri.com/mnjuser/profile"
-    endpoint = ensure_window(url)
-    out_dir = Path(__file__).resolve().parents[2] / "data" / "naukri_resumes"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = Path("D:/resume naukri")
+    try:
+        out_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        out_dir = Path(__file__).resolve().parents[2] / "data" / "naukri_resumes"
+        out_dir.mkdir(parents=True, exist_ok=True)
     result = executor.run_script(
         "naukri_resume_refresh",
         {
@@ -388,7 +391,6 @@ def refresh_resume(
         naukri_cookies=cookies(account),
         user_id=profile.user_id,
         timeout=180,
-        browser_cdp_endpoint=endpoint,
     )
     data = result.get("data") or {}
     returned = data.get("cookies")
@@ -410,5 +412,7 @@ def refresh_resume(
         "uploaded_on": str(data.get("uploaded_on") or ""),
         "skipped": bool(data.get("skipped")),
         "message": str(data.get("message") or ""),
+        "summary_updated": bool(data.get("summary_updated")),
+        "summary_note": str(data.get("summary_note") or ""),
     }
 

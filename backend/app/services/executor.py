@@ -232,7 +232,7 @@ def run_script(
         env["STEALTH_HEADLESS"] = "0"
         if name == "naukri_login":
             env.pop("STEALTH_OFFSCREEN", None)
-        elif name in ("naukri_search", "naukri_detail"):
+        elif name in ("naukri_search", "naukri_detail", "naukri_resume_refresh"):
             # Installed Chrome's new headless mode passes Naukri's edge, so the
             # scheduled scan runs without a visible window.
             env["STEALTH_HEADLESS"] = "1"
