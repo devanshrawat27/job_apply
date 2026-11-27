@@ -103,8 +103,53 @@ def disconnect(db: Session, account: NaukriAccount) -> None:
     db.commit()
 
 
+def _focus_existing_window() -> bool:
+    """Bring an already-open Naukri app window to the front, if one exists."""
+    if os.name != "nt":
+        return False
+    script = r'''
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class JPFocusNaukri {
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+}
+'@
+$procs = Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" | Where-Object { $_.CommandLine -like '*browser-profile-naukri*' }
+foreach ($p in $procs) {
+  $gp = Get-Process -Id $p.ProcessId -ErrorAction SilentlyContinue
+  if ($gp -and $gp.MainWindowHandle -ne 0) {
+    [JPFocusNaukri]::ShowWindow($gp.MainWindowHandle, 9) | Out-Null
+    [JPFocusNaukri]::SetForegroundWindow($gp.MainWindowHandle) | Out-Null
+    exit 0
+  }
+}
+exit 1
+'''
+    try:
+        result = subprocess.run(
+            [
+                "powershell",
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ],
+            capture_output=True,
+            timeout=15,
+        )
+        return result.returncode == 0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def open_window(url: str = "https://www.naukri.com/myapply/historypage") -> dict:
-    """Open the logged-in Naukri Chrome profile in a visible window."""
+    """Open (or focus) the logged-in Naukri Chrome window."""
+    if _focus_existing_window():
+        return {"ok": True, "reused": True}
+
     chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
     if not chrome.exists():
         found = shutil.which("chrome")
