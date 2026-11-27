@@ -18,7 +18,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.agents.discovery import HIRING_TERMS, MAX_QUERY_LEN, selected_roles
@@ -28,7 +28,7 @@ from app.models import Profile, SearchQuery
 logger = logging.getLogger(__name__)
 
 MAX_KEYWORDS_PER_SCAN = 4
-PINNED_PER_SCAN = 3
+PINNED_PER_SCAN = 1
 ACTIVATE_SCORE = 0.30
 RETIRE_SCORE = 0.12
 MAX_ROWS = 50
@@ -238,8 +238,112 @@ def _add(
     return row
 
 
+def recent_yield(
+    db: Session, user_id: int | None = None, *, days: int = 3, threshold: int = 60
+) -> dict[str, dict[str, int]]:
+    """What each search keyword actually produced recently.
+
+    ``relevant`` is a keyword match; ``usable`` means the post survived the
+    experience/author gates and became a sent job, a draft or an apply link.
+    """
+    from app.models import JobPost
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, days))
+    usable_statuses = ("sent", "new", "pending_approval", "queued")
+    stmt = select(
+        JobPost.query_text,
+        func.count(JobPost.id),
+        func.sum(case((JobPost.relevance >= threshold, 1), else_=0)),
+        func.sum(case((JobPost.status.in_(usable_statuses), 1), else_=0)),
+    ).where(
+        JobPost.discovered_at >= cutoff,
+        JobPost.query_text != "",
+        func.lower(JobPost.query_text) != "home feed",
+    )
+    if user_id is not None:
+        stmt = stmt.where(JobPost.user_id == user_id)
+
+    out: dict[str, dict[str, int]] = {}
+    for keyword, created, relevant, usable in db.execute(
+        stmt.group_by(JobPost.query_text)
+    ).all():
+        if not keyword:
+            continue
+        out[str(keyword).lower()] = {
+            "created": int(created or 0),
+            "relevant": int(relevant or 0),
+            "usable": int(usable or 0),
+        }
+    return out
+
+
+def optimize(db: Session, user_id: int | None = None) -> int:
+    """Retire keywords that stopped producing, activate the ones that work.
+
+    Runs from every scan pick. Pinned keywords are protected while they still
+    produce something; a clearly dead pinned keyword is unpinned and retired so
+    it cannot keep taking a scan slot forever.
+    """
+    now = datetime.now(timezone.utc)
+    stmt = select(SearchQuery)
+    if user_id is not None:
+        stmt = stmt.where(SearchQuery.user_id == user_id)
+    rows = list(db.scalars(stmt).all())
+    recent = recent_yield(db, user_id, days=3)
+    changed = 0
+
+    def _aware(value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    for row in rows:
+        if row.status == "retired":
+            continue
+        seen = int(row.posts_seen or 0)
+        relevant = int(row.posts_relevant or 0)
+        uses = int(row.uses or 0)
+        recent_row = recent.get(row.keyword.lower(), {})
+        recent_relevant = int(recent_row.get("relevant") or 0)
+
+        dead = (uses >= 20 and seen <= 1) or (seen >= 20 and relevant == 0)
+        if dead:
+            if row.pinned:
+                row.pinned = False
+                logger.info("unpinned dead keyword %r", row.keyword)
+            row.status = "retired"
+            changed += 1
+            continue
+
+        if (
+            row.status == "candidate"
+            and (relevant >= 2 or recent_relevant >= 1)
+            and (row.score or 0) >= ACTIVATE_SCORE
+        ):
+            row.status = "active"
+            changed += 1
+
+    # Candidates that were tried a while ago and never returned a single post
+    # would otherwise sit in the exploration pool forever.
+    for row in rows:
+        if row.status != "candidate":
+            continue
+        if int(row.posts_seen or 0) != 0 or int(row.uses or 0) == 0:
+            continue
+        last_used = _aware(row.last_used_at)
+        if last_used is not None and (now - last_used) >= timedelta(days=3):
+            row.status = "retired"
+            changed += 1
+
+    if changed:
+        db.commit()
+        logger.info("keyword optimizer: %s change(s)", changed)
+    return changed
+
+
 def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -> list[SearchQuery]:
-    """Pick up to 3 keywords for this scan and mark them as used."""
+    """Pick the best-performing keywords for this scan and mark them used."""
+    optimize(db, user_id)
     stmt = select(SearchQuery)
     if user_id is not None:
         stmt = stmt.where(SearchQuery.user_id == user_id)
@@ -281,41 +385,43 @@ def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -
             _add(db, rows, known, keyword, user_id, source="curated")
     db.flush()
 
-    # Rotate the proven keywords instead of always firing the top two: the
-    # least recently used ones go first, so scans cycle through the whole
-    # active set ("this one, then that one").
-    active_pool = [row for row in rows if row.status == "active"]
-    active_pool.sort(
-        key=lambda row: (
-            row.last_used_at is not None,
-            row.last_used_at or datetime.min,
-            row.uses or 0,
-            -_score(row),
-            row.id,
-        )
-    )
-    active = active_pool[:2]
+    recent = recent_yield(db, user_id, days=3)
+
+    def priority(row: SearchQuery) -> float:
+        stats = recent.get(row.keyword.lower(), {})
+        volume = float(stats.get("relevant") or 0) + 2.0 * float(stats.get("usable") or 0)
+        seen = int(row.posts_seen or 0)
+        relevant = int(row.posts_relevant or 0)
+        quality = (relevant + 1) / (seen + 4)
+        return volume + 3.0 * quality
+
+    def order(row: SearchQuery) -> tuple:
+        return (-priority(row), row.last_used_at or datetime.min, row.id)
+
+    active = sorted([row for row in rows if row.status == "active"], key=order)
+    # At most one pinned slot: pins are a human override, not a licence to keep
+    # firing keywords that never find anything.
     pinned_rows = sorted(
         [
             row
             for row in rows
             if row.pinned and row.status in ("active", "candidate")
         ],
-        key=lambda row: (row.last_used_at is not None, row.last_used_at or datetime.min, row.uses, row.id),
-    )
+        key=order,
+    )[:PINNED_PER_SCAN]
+
     # Try never-used keywords first, so the curated roles actually get a turn;
     # then fall back to proven-but-not-active ones by score.
     untried = sorted(
         [row for row in rows if row.status == "candidate" and not row.uses],
-        key=lambda row: row.id,
+        key=order,
     )
     tried = sorted(
         [row for row in rows if row.status == "candidate" and row.uses],
-        key=lambda row: (-row.score, row.uses, row.id),
+        key=order,
     )
     candidates = untried + tried
 
-    # Fresh exploration pool, shared by both scheduling modes below.
     fresh = [row for row in candidates if row.uses == 0]
     analyst_new = [row for row in fresh if (row.source or "") == "analyst"]
     hiring_phrases = {term.lower() for term in keyword_sets.HIRING_PHRASE_KEYWORDS}
@@ -325,29 +431,28 @@ def select_keywords(db: Session, profile: Profile, user_id: int | None = None) -
         (analyst_new or hiring or fresh) if parity == 0 else (hiring or analyst_new or fresh)
     )
 
+    chosen: list[SearchQuery] = []
     if pinned_rows:
-        # Pinned keywords are guaranteed work: rotate the least recently used
-        # ones, then add one exploration keyword.
-        chosen = list(pinned_rows[:PINNED_PER_SCAN])
-        for row in active + candidates:
-            if len(chosen) >= MAX_KEYWORDS_PER_SCAN:
-                break
-            if row not in chosen:
-                chosen.append(row)
-                break
-        if exploration_pool:
-            pick = exploration_pool[0]
-            if pick not in chosen:
-                chosen.append(pick)
-    elif active:
-        chosen = list(active)
-        # One exploration slot. Alternate between ChatGPT's suggestions and
-        # plain hiring phrases so neither kind starves the other.
-        if exploration_pool:
-            chosen.append(exploration_pool[0])
-    else:
-        # Cold start: try several candidates at once so we get signal fast.
-        chosen = candidates[:MAX_KEYWORDS_PER_SCAN]
+        chosen.append(pinned_rows[0])
+
+    # Fill with the keywords that produced the most recent relevant/usable jobs.
+    for row in active:
+        if len(chosen) >= MAX_KEYWORDS_PER_SCAN - 1:
+            break
+        if row not in chosen:
+            chosen.append(row)
+
+    # One exploration slot so a new keyword can still prove itself.
+    exploration = next((row for row in exploration_pool if row not in chosen), None)
+    if exploration is not None:
+        chosen.append(exploration)
+
+    # Cold start / sparse pool: fill from candidates, best first.
+    for row in candidates:
+        if len(chosen) >= MAX_KEYWORDS_PER_SCAN:
+            break
+        if row not in chosen:
+            chosen.append(row)
 
     if len(chosen) < MAX_KEYWORDS_PER_SCAN:
         for keyword in keyword_pool(profile):

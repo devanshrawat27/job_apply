@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 from sqlalchemy import delete, select
 
 from app.agents import query_lab
 from app.database import SessionLocal
-from app.models import Profile, SearchQuery
+from app.models import JobPost, Profile, SearchQuery
 
 
 @pytest.fixture()
 def db():
     session = SessionLocal()
+    session.execute(delete(JobPost))
     session.execute(delete(SearchQuery))
     session.execute(delete(Profile))
     session.commit()
@@ -124,7 +127,7 @@ def test_curated_roles_enter_the_pool(db):
         assert senior not in known
 
 
-def test_pinned_keywords_are_never_retired(db):
+def test_record_results_does_not_retire_a_pinned_keyword(db):
     row = SearchQuery(
         keyword="hiring engineers",
         status="candidate",
@@ -143,6 +146,75 @@ def test_pinned_keywords_are_never_retired(db):
     db.refresh(row)
     assert row.status != "retired"
     assert row.pinned is True
+
+
+def test_optimizer_retires_a_dead_pinned_keyword(db):
+    dead = SearchQuery(
+        keyword="full stack intern",
+        status="active",
+        pinned=True,
+        uses=50,
+        posts_seen=1,
+        posts_relevant=1,
+        score=0.5,
+    )
+    good = SearchQuery(
+        keyword="software engineer",
+        status="active",
+        uses=50,
+        posts_seen=100,
+        posts_relevant=40,
+        score=0.4,
+    )
+    db.add_all([dead, good])
+    db.commit()
+
+    assert query_lab.optimize(db) >= 1
+    db.refresh(dead)
+    db.refresh(good)
+    assert dead.status == "retired"
+    assert dead.pinned is False
+    assert good.status == "active"
+
+
+def test_selection_prefers_a_keyword_with_recent_relevant_jobs(db):
+    now = datetime.now(timezone.utc)
+    db.add_all(
+        [
+            SearchQuery(
+                keyword="software engineer",
+                status="active",
+                uses=10,
+                posts_seen=50,
+                posts_relevant=20,
+                score=0.4,
+            ),
+            SearchQuery(
+                keyword="react developer",
+                status="active",
+                uses=10,
+                posts_seen=50,
+                posts_relevant=2,
+                score=0.1,
+            ),
+        ]
+    )
+    for index in range(3):
+        db.add(
+            JobPost(
+                post_id=f"recent-{index}",
+                query_text="software engineer",
+                content="We are hiring a software engineer.",
+                relevance=80,
+                status="new",
+                discovered_at=now,
+            )
+        )
+    db.commit()
+
+    chosen = query_lab.select_keywords(db, db.get(Profile, 1))
+    names = {row.keyword.lower() for row in chosen}
+    assert "software engineer" in names
 
 
 def test_untried_keywords_are_tried_before_used_ones(db):
