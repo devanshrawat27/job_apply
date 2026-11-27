@@ -10,6 +10,7 @@ import { launchBrowser } from '../utils/browser.js'
 import { reportFail, reportOk } from '../utils/report.js'
 
 const EMAIL = (process.env.SCRIPT_ARG_EMAIL || '').trim()
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 const HARD_DEADLINE_MS = 330000
 const watchdog = setTimeout(() => {
   reportFail('TIMEOUT', 'Naukri login did not finish in time')
@@ -23,32 +24,35 @@ async function readCookies(context) {
   return values
 }
 
-async function confirmSession(page) {
-  // Check the session without touching the tab the human is using. Fetching
-  // the authenticated homepage from inside naukri.com carries the live cookies;
-  // a login redirect or the login form means the session is not ready yet.
+async function confirmSession(context) {
+  // A background fetch sees Naukri's SPA shell and can look signed-in while the
+  // page is still the login form. Open the authenticated homepage in a probe
+  // tab and judge the rendered page instead.
+  const probe = await context.newPage()
   try {
-    const result = await page.evaluate(async () => {
-      try {
-        const response = await fetch('https://www.naukri.com/mnjuser/homepage', {
-          credentials: 'include',
-          redirect: 'follow',
-        })
-        const text = await response.text()
-        return { url: response.url, status: response.status, text: text.slice(0, 6000) }
-      } catch (error) {
-        return { error: String(error) }
-      }
-    })
-    if (!result || result.error) return { ok: false, name: '' }
-    if (/nlogin|login/i.test(result.url || '')) return { ok: false, name: '' }
-    const body = (result.text || '').toLowerCase()
+    await probe
+      .goto('https://www.naukri.com/mnjuser/homepage', {
+        waitUntil: 'domcontentloaded',
+        timeout: 45000,
+      })
+      .catch(() => {})
+    await probe.waitForTimeout(5000)
+    const url = probe.url()
+    if (/nlogin|login/i.test(url)) return { ok: false, name: '' }
+    const body = (await probe.locator('body').innerText().catch(() => '')).toLowerCase()
     if (/forgot password|use otp to login|new to naukri\?/.test(body)) {
       return { ok: false, name: '' }
     }
+    const passwordFields = await probe
+      .locator('input[type="password"], input[name="password"]')
+      .count()
+      .catch(() => 0)
+    if (passwordFields > 0) return { ok: false, name: '' }
     return { ok: true, name: '' }
   } catch {
     return { ok: false, name: '' }
+  } finally {
+    await probe.close().catch(() => {})
   }
 }
 
@@ -94,17 +98,17 @@ async function login() {
     const deadline = Date.now() + 280000
     let lastCheck = 0
     while (Date.now() < deadline) {
-      if (Date.now() - lastCheck >= 5000) {
+      if (Date.now() - lastCheck >= 10000) {
         lastCheck = Date.now()
-        const check = await confirmSession(page)
+        const check = await confirmSession(context)
         if (check.ok) {
-          await page.waitForTimeout(1500)
+          await sleep(1500)
           const finalCookies = await readCookies(context)
           reportOk({ name: check.name, email: EMAIL, credentials: finalCookies })
           return
         }
       }
-      await page.waitForTimeout(1500)
+      await sleep(1500)
     }
 
     return reportFail(
