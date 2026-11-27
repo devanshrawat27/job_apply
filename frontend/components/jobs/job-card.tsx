@@ -94,7 +94,6 @@ export function JobCard({
   const [error, setError] = useState('')
   const [naukriPreview, setNaukriPreview] = useState<NaukriPreview | null>(null)
   const [naukriAnswer, setNaukriAnswer] = useState('')
-  const [cardAnswer, setCardAnswer] = useState('')
 
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
   const isLinkedIn = job.source === 'linkedin'
@@ -196,31 +195,6 @@ export function JobCard({
     }
   }
 
-  async function submitCardAnswer() {
-    setBusy('naukri-answer')
-    setError('')
-    try {
-      const answers = {
-        [(job.last_error || 'question').slice(0, 200)]: cardAnswer.trim(),
-      }
-      const updated = await api.naukriApply(job.id, answers)
-      setCardAnswer('')
-      await onChange()
-      if (updated.status === 'sent') {
-        toast.success('Applied on Naukri')
-      } else if (updated.status === 'new' && updated.apply_url) {
-        toast.info('This job applies on the company site - it is now in Apply links')
-      } else {
-        toast.warning(updated.decision_reason || 'Naukri still needs more details')
-      }
-    } catch (err) {
-      setError((err as Error).message)
-      toast.error((err as Error).message)
-    } finally {
-      setBusy(null)
-    }
-  }
-
   async function sendEmail() {
     setBusy('send')
     setError('')
@@ -270,15 +244,6 @@ export function JobCard({
     /graduat|passout|batch|year of/i.test(naukriPreview?.questions || '')
   const previewOptions = questionOptions(naukriPreview?.questions || '')
 
-  const cardQuestion = job.last_error || ''
-  const cardYears = Array.from(new Set(cardQuestion.match(/\b20\d{2}\b/g) || []))
-  const cardAskYear =
-    /graduat|passout|batch|year of/i.test(cardQuestion) && cardYears.length > 0
-  const cardOptions = questionOptions(cardQuestion)
-  const naukriQuestionPending =
-    /answer the questions|naukri asks/i.test(job.decision_reason || '') ||
-    /kindly answer|what is your|questionnaire/i.test(cardQuestion)
-
   return (
     <article className="overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-foreground/20">
       {needsYou ? (
@@ -295,66 +260,6 @@ export function JobCard({
           <span className="ml-auto shrink-0 text-[10px] text-amber-700/80 dark:text-amber-300/80">
             confidence {Math.round((job.confidence || 0) * 100)}%
           </span>
-        </div>
-      ) : null}
-
-      {isNaukri && needsYou && naukriQuestionPending && job.last_error ? (
-        <div className="border-b border-border bg-muted/20 px-4 py-2.5">
-          <p className="text-[11px] font-medium text-foreground">Naukri asks</p>
-          <p className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-            {job.last_error}
-          </p>
-          {cardOptions.length ? (
-            <select
-              value={cardAnswer}
-              onChange={(event) => setCardAnswer(event.target.value)}
-              className="mt-2 h-8 rounded-md border border-border bg-background px-2 text-xs"
-            >
-              <option value="">
-                {cardAskYear ? 'Select your graduation year' : 'Select your answer'}
-              </option>
-              {cardOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          ) : (
-            <input
-              value={cardAnswer}
-              onChange={(event) => setCardAnswer(event.target.value)}
-              placeholder="Type your answer"
-              className="mt-2 h-8 w-full rounded-md border border-border bg-background px-2 text-xs"
-            />
-          )}
-          <Button
-            size="sm"
-            className="mt-2"
-            disabled={busy !== null || !cardAnswer.trim()}
-            onClick={() => void submitCardAnswer()}
-          >
-            {busy === 'naukri-answer' ? <Loader2Icon className="animate-spin" /> : null}
-            Submit answer &amp; apply
-          </Button>
-        </div>
-      ) : null}
-
-      {isNaukri && needsYou && !naukriQuestionPending && job.last_error ? (
-        <div className="border-b border-border bg-muted/20 px-4 py-2.5">
-          <p className="text-[11px] font-medium text-foreground">
-            Naukri couldn&apos;t start this application
-          </p>
-          <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-            {job.last_error}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button size="sm" variant="outline" onClick={() => void openNaukriWindow()}>
-              Open Naukri
-            </Button>
-            <Button size="sm" onClick={() => void openNaukriPreview()}>
-              Retry
-            </Button>
-          </div>
         </div>
       ) : null}
 
@@ -573,7 +478,7 @@ export function JobCard({
           </p>
         ) : null}
 
-        {job.last_error ? (
+        {job.last_error && !isNaukri ? (
           <p className="mt-2 text-[11px] text-destructive">{job.last_error}</p>
         ) : null}
         {error ? <p className="mt-2 text-[11px] text-destructive">{error}</p> : null}
@@ -623,6 +528,18 @@ export function JobCard({
                     <ExternalLinkIcon />
                   )}
                   Auto-apply on Naukri
+                </Button>
+              ) : null}
+
+              {isNaukri && job.status === 'pending_approval' ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy !== null}
+                  onClick={() => void openNaukriWindow()}
+                >
+                  <ExternalLinkIcon />
+                  Open Naukri
                 </Button>
               ) : null}
 

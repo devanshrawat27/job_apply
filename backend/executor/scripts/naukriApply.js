@@ -61,7 +61,11 @@ async function questionText(page, fallback) {
 }
 
 async function visibleButton(page, patterns) {
-  const buttons = page.locator('button, [role="button"], a')
+  // Naukri renders its Save/Submit controls as divs, not <button>, so include
+  // the class names it uses as well as normal buttons.
+  const buttons = page.locator(
+    'button, [role="button"], a, div[class*="sendMsgbtn"], div[class*="btn" i]',
+  )
   const count = await buttons.count().catch(() => 0)
   for (let index = 0; index < count; index += 1) {
     const item = buttons.nth(index)
