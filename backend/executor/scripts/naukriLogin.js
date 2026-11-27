@@ -23,13 +23,33 @@ async function readCookies(context) {
   return values
 }
 
-async function looksLoggedIn(page, cookies) {
-  const url = page.url()
-  if (/nlogin|login/i.test(url)) return false
-  if (/mnjuser|my-naukri|homepage/i.test(url)) return true
-  if (cookies.naukri_user || cookies.NaukriUser || cookies.naukri_uid) return true
-  const body = (await page.locator('body').innerText().catch(() => '')).toLowerCase()
-  return /logout|my naukri|view profile/.test(body)
+async function confirmSession(page) {
+  // Check the session without touching the tab the human is using. Fetching
+  // the authenticated homepage from inside naukri.com carries the live cookies;
+  // a login redirect or the login form means the session is not ready yet.
+  try {
+    const result = await page.evaluate(async () => {
+      try {
+        const response = await fetch('https://www.naukri.com/mnjuser/homepage', {
+          credentials: 'include',
+          redirect: 'follow',
+        })
+        const text = await response.text()
+        return { url: response.url, status: response.status, text: text.slice(0, 6000) }
+      } catch (error) {
+        return { error: String(error) }
+      }
+    })
+    if (!result || result.error) return { ok: false, name: '' }
+    if (/nlogin|login/i.test(result.url || '')) return { ok: false, name: '' }
+    const body = (result.text || '').toLowerCase()
+    if (/forgot password|use otp to login|new to naukri\?/.test(body)) {
+      return { ok: false, name: '' }
+    }
+    return { ok: true, name: '' }
+  } catch {
+    return { ok: false, name: '' }
+  }
 }
 
 async function login() {
@@ -55,18 +75,19 @@ async function login() {
 
     console.log('Naukri login window is open. Sign in there; waiting up to 5 minutes...')
     const deadline = Date.now() + 280000
+    let lastCheck = 0
     while (Date.now() < deadline) {
-      const cookies = await readCookies(context)
-      if (looksLoggedIn(page, cookies)) {
-        await page.waitForTimeout(2000)
-        const finalCookies = await readCookies(context)
-        const name = (await page.title().catch(() => ''))
-          .replace(/\s*[-|].*$/, '')
-          .trim()
-        reportOk({ name, email: EMAIL, credentials: finalCookies })
-        return
+      if (Date.now() - lastCheck >= 5000) {
+        lastCheck = Date.now()
+        const check = await confirmSession(page)
+        if (check.ok) {
+          await page.waitForTimeout(1500)
+          const finalCookies = await readCookies(context)
+          reportOk({ name: check.name, email: EMAIL, credentials: finalCookies })
+          return
+        }
       }
-      await page.waitForTimeout(2000)
+      await page.waitForTimeout(1500)
     }
 
     return reportFail(
