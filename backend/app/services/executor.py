@@ -51,6 +51,10 @@ SCRIPTS: dict[str, str] = {
     "check_inbox": "scripts/checkInbox.js",
 }
 
+# X works far more reliably in the installed Chrome than in bundled Chromium:
+# its persistent profile is created by Chrome, and X's bot check is less strict.
+X_SCRIPTS = {"search", "feed", "train_feed", "reply", "dm", "follow", "login", "check_inbox"}
+
 TIMEOUTS: dict[str, int] = {
     "search": 100,
     "feed": 120,
@@ -239,6 +243,8 @@ def run_script(
             env.pop("STEALTH_OFFSCREEN", None)
         else:
             env["STEALTH_OFFSCREEN"] = "1"
+    elif name in X_SCRIPTS:
+        env["BROWSER_CHANNEL"] = "chrome"
     if naukri_cookies:
         env["NAUKRI_COOKIES"] = json.dumps(naukri_cookies)
     if browser_cdp_endpoint:

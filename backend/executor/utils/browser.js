@@ -173,9 +173,20 @@ export async function launchBrowser({ withSession = true } = {}) {
 
 /** X shows the logged-out shell when the cookies are dead. */
 export async function isLoggedOut(page) {
+  const url = page.url()
+  if (/\/i\/(flow|jf)\/.*login|\/login/i.test(url)) return true
+
   const loginInput = await page
     .locator('input[name="text"], input[name="username"], a[href="/login"]')
     .count()
     .catch(() => 0)
-  return loginInput > 0
+  if (loginInput > 0) return true
+
+  // The newer onboarding screen uses buttons ("Continue with phone/Google")
+  // instead of a username input, so the input check alone misses it.
+  const body = await page
+    .locator('body')
+    .innerText()
+    .catch(() => '')
+  return /sign in to x|continue with phone|continue with google|or email or username/i.test(body)
 }

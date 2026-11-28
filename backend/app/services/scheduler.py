@@ -72,11 +72,11 @@ LINK_CHECK_MINUTES = 10
 # LinkedIn's public jobs board is searched on its own timer. It needs no login,
 # so it keeps running while X is paused or disconnected. One search per hour is
 # the safe pace: LinkedIn answers 429 after a couple of quick guest requests.
-LINKEDIN_SCAN_MINUTES = 60
+LINKEDIN_SCAN_MINUTES = 180
 
 # LinkedIn posts need the member's own session. Search is slower and heavier
 # than the jobs board, so it gets its own timer.
-LINKEDIN_POSTS_MINUTES = 90
+LINKEDIN_POSTS_MINUTES = 180
 
 # Naukri runs in a real Chrome window because its edge blocks headless. Keep
 # the cadence gentle so the account is not challenged.

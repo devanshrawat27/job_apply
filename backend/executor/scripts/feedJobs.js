@@ -99,6 +99,13 @@ async function run() {
     }
 
     const body = await page.locator('body').innerText().catch(() => '')
+    if (/performing security verification|just a moment\.\.\./i.test(body)) {
+      reportFail(
+        'BOT_CHECK',
+        'X is showing a Cloudflare verification page - open X once and complete it',
+      )
+      return
+    }
     if (/rate limit|something went wrong\. try reloading/i.test(body)) {
       reportFail('RATE_LIMITED', 'X is rate-limiting the home feed')
       return
