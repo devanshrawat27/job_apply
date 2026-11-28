@@ -4,9 +4,9 @@ import { CheckCircle2Icon, RadarIcon, SparklesIcon } from 'lucide-react'
 import { Logo } from '@/components/logo'
 
 const POINTS = [
-  { icon: RadarIcon, text: 'Scans the home feed and keyword searches on X' },
-  { icon: SparklesIcon, text: 'Writes a specific reply and DM for every real opening' },
-  { icon: CheckCircle2Icon, text: 'Sends when confident, asks you when it is unsure' },
+  { icon: RadarIcon, text: 'Scans X posts, LinkedIn jobs and fresh Naukri listings' },
+  { icon: SparklesIcon, text: 'Writes a specific reply/DM and routes apply links' },
+  { icon: CheckCircle2Icon, text: 'Naukri applications wait for your review' },
 ]
 
 export function AuthShell({ children }: { children: ReactNode }) {
@@ -22,15 +22,15 @@ export function AuthShell({ children }: { children: ReactNode }) {
 
         <div className="relative max-w-md">
           <h2 className="text-3xl font-semibold leading-tight tracking-tight">
-            Fresh hiring posts.
+            Fresh roles.
             <br />
             Specific messages.
             <br />
             Your approval.
           </h2>
           <p className="mt-3 text-sm text-muted-foreground">
-            JobPilot finds new roles on X, filters the noise, and writes outreach for the
-            ones that actually fit your profile.
+            JobPilot finds roles on X, LinkedIn and Naukri, filters the noise, and writes
+            outreach for the ones that fit your profile.
           </p>
           <ul className="mt-7 flex flex-col gap-3">
             {POINTS.map((point) => (

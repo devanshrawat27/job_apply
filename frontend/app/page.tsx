@@ -1,4 +1,8 @@
+'use client'
+
+import { useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   ArrowRightIcon,
   MessageSquareIcon,
@@ -8,29 +12,43 @@ import {
 
 import { Logo } from '@/components/logo'
 import { buttonVariants } from '@/components/ui/button'
+import { getAccessToken } from '@/lib/auth-storage'
 import { cn } from '@/lib/utils'
+
+const SOURCES = [
+  { label: 'X', dot: 'bg-foreground' },
+  { label: 'LinkedIn', dot: 'bg-sky-500' },
+  { label: 'Naukri', dot: 'bg-orange-500' },
+]
 
 const FEATURES = [
   {
     icon: ScanSearchIcon,
     title: 'Finds',
-    body: 'Home feed and fresh keyword searches. Duplicates, job-seeker posts and fakes are removed.',
+    body: 'Fresh roles from X hiring posts and searches, LinkedIn jobs and hiring posts, and new Naukri listings.',
   },
   {
     icon: MessageSquareIcon,
     title: 'Writes',
-    body: 'A reply and a DM for each post, built from the role, your stack and your GitHub projects.',
+    body: 'A specific reply and DM for X posts, plus apply links for LinkedIn and Naukri roles that fit your profile.',
   },
   {
     icon: ShieldCheckIcon,
-    title: 'Guards',
-    body: 'Caps, cool-down and closed-inbox checks. Anything unsure waits for one click from you.',
+    title: 'Applies',
+    body: 'Naukri direct applications open a review popup first. Caps, cool-downs and closed-inbox checks keep everything safe.',
   },
 ]
 
 export default function LandingPage() {
+  const router = useRouter()
+
+  // A signed-in visitor should land in the workspace, not on the marketing page.
+  useEffect(() => {
+    if (getAccessToken()) router.replace('/dashboard')
+  }, [router])
+
   return (
-    <main className="relative flex min-h-screen flex-col overflow-x-hidden lg:h-screen lg:overflow-hidden">
+    <main className="relative flex min-h-screen flex-col overflow-x-hidden">
       <div className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[420px] bg-[radial-gradient(55%_60%_at_50%_0%,rgba(16,185,129,0.10),transparent_70%)]" />
 
       <header className="flex w-full shrink-0 items-center justify-between px-5 py-4 sm:px-8">
@@ -49,7 +67,7 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <div className="flex flex-1 flex-col items-center justify-center gap-10 px-5 py-6 text-center lg:gap-14">
+      <div className="flex flex-1 flex-col items-center justify-center gap-10 px-5 py-10 text-center lg:gap-14 lg:py-14">
         <section className="w-full max-w-2xl">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background/70 px-3 py-1 text-[11px] text-muted-foreground">
             <span className="size-1.5 rounded-full bg-emerald-500" />
@@ -57,15 +75,27 @@ export default function LandingPage() {
           </span>
 
           <h1 className="mt-5 text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl">
-            Job hunting on X,
+            Job hunting on X, LinkedIn
             <br />
-            handled.
+            and Naukri — handled.
           </h1>
 
           <p className="mx-auto mt-4 max-w-lg text-sm leading-relaxed text-muted-foreground sm:text-base">
-            JobPilot scans your feed and fresh hiring posts, writes a specific reply and DM
-            for each real opening, and applies when it is confident. You approve the rest.
+            JobPilot scans fresh hiring posts and job boards, writes a specific reply or DM for
+            real openings, and applies on Naukri after your review.
           </p>
+
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
+            {SOURCES.map((source) => (
+              <span
+                key={source.label}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+              >
+                <span className={cn('size-1.5 rounded-full', source.dot)} />
+                {source.label}
+              </span>
+            ))}
+          </div>
 
           <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
             <Link href="/signup" className={cn(buttonVariants({ size: 'lg' }), 'gap-2')}>

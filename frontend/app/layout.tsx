@@ -5,9 +5,9 @@ import { ThemeProvider } from '@/components/theme-provider'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'JobPilot — X job outreach agent',
+  title: 'JobPilot - X, LinkedIn & Naukri job agent',
   description:
-    'An agent that finds fresh job posts on X, replies to them, and sends a personal DM.',
+    'An agent that finds fresh jobs on X, LinkedIn and Naukri, writes outreach, and applies on Naukri with your review.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
