@@ -66,6 +66,7 @@ export interface Account {
 }
 
 export interface NaukriPreview {
+  source: 'naukri' | 'indeed'
   job: { id: number; title: string; company: string; url: string }
   profile: {
     name: string
@@ -97,6 +98,15 @@ export interface NaukriResumeRefresh {
 }
 
 export interface NaukriAccount {
+  id: number
+  email: string
+  display_name: string
+  status: string
+  has_session: boolean
+  last_checked_at: string | null
+}
+
+export interface IndeedAccount {
   id: number
   email: string
   display_name: string
@@ -143,7 +153,7 @@ export interface AgentSettings {
 export interface Job {
   id: number
   post_id: string
-  source: 'x' | 'linkedin' | 'naukri'
+  source: 'x' | 'linkedin' | 'naukri' | 'indeed'
   source_job_id: string
   source_kind: 'job' | 'post'
   post_url: string

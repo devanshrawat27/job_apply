@@ -44,6 +44,11 @@ SCRIPTS: dict[str, str] = {
     "naukri_apply": "scripts/naukriApply.js",
     "naukri_open": "scripts/naukriOpen.js",
     "naukri_resume_refresh": "scripts/naukriResumeRefresh.js",
+    "indeed_login": "scripts/indeedLogin.js",
+    "indeed_search": "scripts/indeedSearch.js",
+    "indeed_detail": "scripts/indeedDetail.js",
+    "indeed_apply": "scripts/indeedApply.js",
+    "indeed_open": "scripts/indeedOpen.js",
     "chatgpt_ask": "scripts/chatgptAsk.js",
     "chatgpt_login": "scripts/chatgptLogin.js",
     "chatgpt_whoami": "scripts/chatgptWhoami.js",
@@ -54,6 +59,8 @@ SCRIPTS: dict[str, str] = {
 # X works far more reliably in the installed Chrome than in bundled Chromium:
 # its persistent profile is created by Chrome, and X's bot check is less strict.
 X_SCRIPTS = {"search", "feed", "train_feed", "reply", "dm", "follow", "login", "check_inbox"}
+
+INDEED_SCRIPTS = {"indeed_login", "indeed_search", "indeed_detail", "indeed_apply", "indeed_open"}
 
 TIMEOUTS: dict[str, int] = {
     "search": 100,
@@ -67,6 +74,10 @@ TIMEOUTS: dict[str, int] = {
     "naukri_search": 330,
     "naukri_detail": 300,
     "naukri_apply": 240,
+    "indeed_login": 360,
+    "indeed_search": 300,
+    "indeed_detail": 240,
+    "indeed_apply": 300,
     "chatgpt_ask": 220,
     "chatgpt_login": 340,
     "chatgpt_whoami": 100,
@@ -208,6 +219,7 @@ def run_script(
     timeout: int | None = None,
     lock_timeout: float | None = None,
     naukri_cookies: dict[str, str] | None = None,
+    indeed_cookies: dict[str, str] | None = None,
     browser_cdp_endpoint: str | None = None,
 ) -> dict[str, Any]:
     """Run one executor script and return its parsed RESULT_JSON payload."""
@@ -245,8 +257,21 @@ def run_script(
             env["STEALTH_OFFSCREEN"] = "1"
     elif name in X_SCRIPTS:
         env["BROWSER_CHANNEL"] = "chrome"
+    elif name in INDEED_SCRIPTS:
+        env["BROWSER_CHANNEL"] = "chrome"
+        if name in ("indeed_search", "indeed_detail"):
+            env["STEALTH_HEADLESS"] = "1"
+            env.pop("STEALTH_OFFSCREEN", None)
+        elif name == "indeed_login":
+            env["STEALTH_HEADLESS"] = "0"
+            env.pop("STEALTH_OFFSCREEN", None)
+        else:
+            env["STEALTH_HEADLESS"] = "0"
+            env["STEALTH_OFFSCREEN"] = "1"
     if naukri_cookies:
         env["NAUKRI_COOKIES"] = json.dumps(naukri_cookies)
+    if indeed_cookies:
+        env["INDEED_COOKIES"] = json.dumps(indeed_cookies)
     if browser_cdp_endpoint:
         env["BROWSER_CDP_ENDPOINT"] = browser_cdp_endpoint
 

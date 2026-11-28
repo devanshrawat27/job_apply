@@ -17,6 +17,7 @@ import { toast } from 'sonner'
 
 import { ConnectXForm } from '@/components/accounts/connect-x'
 import { ConnectEmail } from '@/components/accounts/connect-email'
+import { IndeedCard } from '@/components/accounts/indeed-card'
 import { LinkedInCard } from '@/components/accounts/linkedin-card'
 import { NaukriCard } from '@/components/accounts/naukri-card'
 import { PageHeader } from '@/components/page-header'
@@ -1223,6 +1224,7 @@ export default function SettingsPage() {
       <LinkedInCard />
 
       <NaukriCard />
+      <IndeedCard />
 
       <div className="flex justify-end">
         <Button onClick={() => void save()} disabled={saving}>

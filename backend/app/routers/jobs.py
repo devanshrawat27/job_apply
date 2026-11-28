@@ -239,6 +239,7 @@ def naukri_preview(
     facts = pipeline._naukri_profile_facts(profile)
 
     return {
+        "source": "naukri",
         "job": {
             "id": job.id,
             "title": job.role or "",
@@ -284,6 +285,82 @@ def naukri_apply(
     result = pipeline.apply_naukri(db, job, answers=answers)
     code = str(result.get("code") or "")
     if not result.get("ok") and code in ("NOT_NAUKRI", "NO_ACCOUNT", "NO_URL"):
+        status = 409 if code == "NO_ACCOUNT" else 400
+        raise HTTPException(status_code=status, detail=result.get("error") or code)
+    return result.get("job") or job
+
+
+@router.get("/{job_id}/indeed-preview")
+def indeed_preview(
+    job_id: int, user: CurrentUser = None, db: Session = Depends(get_db)
+) -> dict:
+    """Values JobPilot knows for this Indeed application, for the review popup."""
+    job = _owned(db, job_id, user)
+    profile = pipeline.get_profile(db, job.user_id)
+    if profile is None:
+        raise HTTPException(status_code=400, detail="complete your profile first")
+    links = {
+        str(key): str(value)
+        for key, value in (profile.links or {}).items()
+        if str(value or "").strip()
+    }
+    error = (job.last_error or "").strip()
+    asks_question = (job.decision_reason or "").startswith("Indeed asks a question")
+    questions = error if asks_question else ""
+    question = questions.split("\n")[0].strip() if questions else ""
+    options: list[str] = []
+    for line in questions.splitlines():
+        if line.lower().startswith("options:"):
+            options = [part.strip() for part in line.split(":", 1)[1].split("/") if part.strip()]
+    facts = pipeline._naukri_profile_facts(profile)
+
+    return {
+        "source": "indeed",
+        "job": {
+            "id": job.id,
+            "title": job.role or "",
+            "company": job.company or "",
+            "url": job.post_url or job.apply_url or "",
+        },
+        "profile": {
+            "name": profile.full_name or "",
+            "email": profile.email or "",
+            "phone": profile.phone or "",
+            "experience_months": int(profile.experience_months or 0),
+            "current_role": profile.current_role or "",
+            "graduation_year": int(profile.graduation_year or 0),
+            "degree": str(facts.get("degree") or ""),
+            "location": profile.location or "",
+            "resume": job.resume_label or profile.resume_filename or "Indeed saved resume",
+            "links": links,
+            "skills": [str(item) for item in (profile.skills or [])[:12]],
+        },
+        "question": question,
+        "options": options,
+        "questions": questions,
+        "error": "" if asks_question else error,
+    }
+
+
+@router.post("/{job_id}/indeed-apply", response_model=JobOut)
+def indeed_apply(
+    job_id: int,
+    payload: dict | None = None,
+    user: CurrentUser = None,
+    db: Session = Depends(get_db),
+) -> JobPost:
+    """Auto-apply on Indeed for a direct-apply job the human approved."""
+    job = _owned(db, job_id, user)
+    if job.status in ("sent", "sending"):
+        raise HTTPException(status_code=409, detail="this job is already applied")
+    answers = {}
+    if isinstance(payload, dict):
+        raw = payload.get("answers")
+        if isinstance(raw, dict):
+            answers = {str(key): str(value) for key, value in raw.items() if str(value).strip()}
+    result = pipeline.apply_indeed(db, job, answers=answers)
+    code = str(result.get("code") or "")
+    if not result.get("ok") and code in ("NOT_INDEED", "NO_ACCOUNT", "NO_URL"):
         status = 409 if code == "NO_ACCOUNT" else 400
         raise HTTPException(status_code=status, detail=result.get("error") or code)
     return result.get("job") or job

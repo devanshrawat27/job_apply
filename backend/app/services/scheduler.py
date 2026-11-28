@@ -81,6 +81,8 @@ LINKEDIN_POSTS_MINUTES = 180
 # Naukri runs in a real Chrome window because its edge blocks headless. Keep
 # the cadence gentle so the account is not challenged.
 NAUKRI_SCAN_MINUTES = 120
+# Indeed's public search works headless, but keep the same gentle cadence.
+INDEED_SCAN_MINUTES = 180
 LINKEDIN_SESSION_MINUTES = 30
 
 # While idle, like/follow a few hiring posts this often so X fills the feed
@@ -118,6 +120,7 @@ class AgentLoop(threading.Thread):
         self._last_linkedin_posts: dict[int | None, datetime] = {}
         self._last_linkedin_session: dict[int | None, datetime] = {}
         self._last_naukri: dict[int | None, datetime] = {}
+        self._last_indeed: dict[int | None, datetime] = {}
         self._running = False
 
     def stop(self) -> None:
@@ -492,6 +495,23 @@ class AgentLoop(threading.Thread):
                 )
             except Exception:  # noqa: BLE001 - never break the loop
                 logger.warning("Naukri scan failed for user %s", user_id, exc_info=True)
+                db.rollback()
+
+        # 2g. Indeed.in. Public search needs no login; direct Quick Apply jobs
+        # wait in Approvals and external jobs go to Apply links.
+        last_indeed = self._last_indeed.get(user_id)
+        indeed_due = last_indeed is None or now - last_indeed >= timedelta(
+            minutes=INDEED_SCAN_MINUTES
+        )
+        if indeed_due:
+            self._last_indeed[user_id] = now
+            try:
+                id_run = pipeline.scan_indeed(db, user_id=user_id)
+                logger.info(
+                    "user %s Indeed scan: %s %s", user_id, id_run.status, id_run.stats
+                )
+            except Exception:  # noqa: BLE001 - never break the loop
+                logger.warning("Indeed scan failed for user %s", user_id, exc_info=True)
                 db.rollback()
 
         # 3. Scanning runs on its own schedule and is never starved by the queue.

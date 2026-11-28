@@ -6,6 +6,7 @@ import type {
   Dashboard,
   EmailAccount,
   Health,
+  IndeedAccount,
   Insight,
   Job,
   KeywordsSnapshot,
@@ -200,6 +201,19 @@ export const api = {
     }),
   naukriRefreshResume: () =>
     mutate<NaukriResumeRefresh>('/naukri/refresh-resume', { method: 'POST' }),
+  indeedAccount: () => request<IndeedAccount | null>('/indeed'),
+  indeedWindow: (url?: string) =>
+    mutate<{ ok: boolean }>('/indeed/window', {
+      method: 'POST',
+      body: JSON.stringify({ url: url || '' }),
+    }),
+  connectIndeed: (email: string) =>
+    mutate<IndeedAccount>('/indeed/connect', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+  disconnectIndeed: (id: number) =>
+    mutate<{ deleted: boolean }>(`/indeed/${id}`, { method: 'DELETE' }),
   connectNaukri: (email: string) =>
     mutate<NaukriAccount>('/naukri/connect', {
       method: 'POST',
@@ -229,7 +243,7 @@ export const api = {
   jobs: (params: {
     status?: string
     q?: string
-    source?: 'x' | 'linkedin' | 'naukri'
+    source?: 'x' | 'linkedin' | 'naukri' | 'indeed'
     has_link?: boolean
     open_only?: boolean
     sort?: string
@@ -266,6 +280,12 @@ export const api = {
   naukriPreview: (id: number) => request<NaukriPreview>(`/jobs/${id}/naukri-preview`),
   naukriApply: (id: number, answers?: Record<string, string>) =>
     mutate<Job>(`/jobs/${id}/naukri-apply`, {
+      method: 'POST',
+      body: JSON.stringify({ answers: answers || {} }),
+    }),
+  indeedPreview: (id: number) => request<NaukriPreview>(`/jobs/${id}/indeed-preview`),
+  indeedApply: (id: number, answers?: Record<string, string>) =>
+    mutate<Job>(`/jobs/${id}/indeed-apply`, {
       method: 'POST',
       body: JSON.stringify({ answers: answers || {} }),
     }),

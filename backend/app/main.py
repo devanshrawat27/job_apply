@@ -19,6 +19,7 @@ from app.routers import (
     accounts,
     auth,
     health,
+    indeed,
     jobs,
     keywords,
     linkedin,
@@ -104,6 +105,7 @@ protected.include_router(profile.router)
 protected.include_router(accounts.router)
 protected.include_router(linkedin.router)
 protected.include_router(naukri.router)
+protected.include_router(indeed.router)
 protected.include_router(settings_router.router)
 protected.include_router(jobs.router)
 protected.include_router(keywords.router)

@@ -283,6 +283,56 @@ def test_refresh_resume_returns_the_dated_name(db, monkeypatch):
     assert result["summary_updated"] is True
 
 
+def test_indeed_scan_routes_direct_and_external(db, monkeypatch):
+    def fake(name, args=None, **kwargs):
+        assert name == "indeed_search"
+        return {
+            "success": True,
+            "code": "OK",
+            "data": {
+                "jobs": [
+                    {
+                        "id": "abc123",
+                        "title": "Python Developer",
+                        "company": "Acme Labs",
+                        "location": "Remote",
+                        "snippet": "FastAPI PostgreSQL freshers welcome",
+                        "posted": "Just posted",
+                        "url": "https://in.indeed.com/viewjob?jk=abc123",
+                        "query": "python developer",
+                        "apply_type": "direct",
+                    },
+                    {
+                        "id": "def456",
+                        "title": "Backend Developer",
+                        "company": "Beta Works",
+                        "location": "Bengaluru",
+                        "snippet": "Python FastAPI PostgreSQL",
+                        "posted": "1 day ago",
+                        "url": "https://in.indeed.com/viewjob?jk=def456",
+                        "query": "backend developer",
+                        "apply_type": "external",
+                    },
+                ]
+            },
+        }
+
+    monkeypatch.setattr(executor, "run_script", fake)
+    run = pipeline.scan_indeed(db, user_id=None)
+    assert run.status == "completed", run.error
+    direct = db.scalar(
+        select(JobPost).where(JobPost.source == "indeed", JobPost.source_job_id == "abc123")
+    )
+    external = db.scalar(
+        select(JobPost).where(JobPost.source == "indeed", JobPost.source_job_id == "def456")
+    )
+    assert direct is not None and direct.status == "pending_approval"
+    assert direct.apply_method == "indeed"
+    assert external is not None and external.status == "new"
+    assert external.apply_method == "link"
+    assert external.apply_url.startswith("https://in.indeed.com/")
+
+
 def test_stale_naukri_jobs_leave_the_list(db):
     old = JobPost(
         post_id="naukri:old",

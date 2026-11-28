@@ -22,6 +22,7 @@ from app.agents import (
     composer,
     discovery,
     email_writer,
+    indeed,
     linkedin_jobs,
     linkedin_keywords,
     linkedin_post_filter,
@@ -49,6 +50,7 @@ from app.services import (
     browser_chatgpt,
     email_accounts,
     executor,
+    indeed_accounts,
     limits,
     linkedin_accounts,
     linkedin_guest,
@@ -1393,6 +1395,7 @@ def scan_linkedin(
 
 
 NAUKRI_MAX_AGE_HOURS = 48
+INDEED_MAX_AGE_HOURS = 48
 
 
 def expire_stale_naukri(
@@ -1670,6 +1673,231 @@ def scan_naukri(
     except Exception as exc:  # noqa: BLE001 - surfaced to the UI
         db.rollback()
         logger.exception("Naukri scan failed")
+        run.status = "failed"
+        run.error = str(exc)
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+
+def scan_indeed(
+    db: Session,
+    *,
+    manual: bool = False,
+    run: Run | None = None,
+    user_id: int | None = None,
+) -> Run:
+    """Find fresh Indeed India jobs and route direct/external applies."""
+    if run is None:
+        run = Run(kind="scan", status="running", user_id=user_id)
+        db.add(run)
+        db.commit()
+        db.refresh(run)
+
+    stats: dict = {
+        "source": "indeed",
+        "queries": 0,
+        "keywords": [],
+        "posts_seen": 0,
+        "posts_new": 0,
+        "duplicates": 0,
+        "relevant": 0,
+        "rejected": 0,
+        "rejected_reasons": {},
+        "direct": 0,
+        "external": 0,
+        "already_applied": 0,
+        "errors": [],
+    }
+
+    def reject(reason: str) -> None:
+        stats["rejected"] += 1
+        key = " ".join((reason or "not a fit").split())[:90]
+        reasons = stats["rejected_reasons"]
+        reasons[key] = int(reasons.get(key, 0)) + 1
+
+    try:
+        profile = get_profile(db, user_id)
+        if profile is None:
+            run.status = "skipped"
+            stats["errors"].append("no profile - finish onboarding first")
+            run.stats = stats
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        account = indeed_accounts.active_account(db, user_id)
+        stats["connected"] = account is not None
+
+        terms = indeed.search_terms(profile, limit=3)
+        stats["queries"] = len(terms)
+        stats["keywords"] = terms
+        if not terms:
+            run.status = "completed"
+            stats["errors"].append("no search terms from the profile")
+            run.stats = stats
+            run.finished_at = _now()
+            db.commit()
+            return run
+
+        result = executor.run_script(
+            "indeed_search",
+            {"queries": ",".join(terms), "limit": 20, "detail_limit": 10},
+            user_id=user_id,
+            indeed_cookies=indeed_accounts.cookies(account),
+            timeout=300,
+        )
+        if not result.get("success"):
+            stats["errors"].append(
+                f"Indeed search failed: {result.get('error') or result.get('code')}"
+            )
+            if result.get("code") == "INDEED_BLOCKED" and account is not None:
+                indeed_accounts.mark_status(db, account, "blocked")
+            run.status = "completed"
+            run.stats = stats
+            run.finished_at = _now()
+            db.commit()
+            db.refresh(run)
+            return run
+
+        if account is not None and account.status != "connected":
+            indeed_accounts.mark_status(db, account, "connected")
+
+        jobs = (result.get("data") or {}).get("jobs") or []
+        stats["posts_seen"] = len(jobs)
+
+        existing_stmt = select(JobPost.post_id).where(JobPost.source == "indeed")
+        hashes_stmt = select(JobPost.content_hash).where(JobPost.source == "indeed")
+        if user_id is not None:
+            existing_stmt = existing_stmt.where(JobPost.user_id == user_id)
+            hashes_stmt = hashes_stmt.where(JobPost.user_id == user_id)
+        existing = set(db.scalars(existing_stmt).all())
+        existing_hashes = {value for value in db.scalars(hashes_stmt).all() if value}
+
+        created: list[JobPost] = []
+        now = _now()
+        for card in jobs:
+            job_id = str(card.get("id") or "").strip()
+            title = str(card.get("title") or "").strip()
+            company = str(card.get("company") or "").strip()
+            if not job_id or not title:
+                continue
+            post_id = f"indeed:{job_id}"
+            if post_id in existing:
+                stats["duplicates"] += 1
+                continue
+
+            verdict = indeed.assess(profile, card)
+            if not verdict["ok"]:
+                reject(str(verdict["reason"]))
+                continue
+
+            posted_at = indeed.posted_datetime(card.get("posted"), now=now)
+            if posted_at is not None and now - posted_at > timedelta(hours=INDEED_MAX_AGE_HOURS):
+                reject("older than 48 hours")
+                continue
+
+            fingerprint = discovery.content_fingerprint(
+                f"{company} {verdict['title']} {verdict['location']}"
+            )
+            if fingerprint and fingerprint in existing_hashes:
+                stats["duplicates"] += 1
+                continue
+
+            url = str(card.get("url") or "").strip()
+            if not url:
+                reject("listing has no apply link")
+                continue
+
+            content = (
+                f"{verdict['title']} at {company}\n"
+                f"{verdict['location']} | {card.get('salary') or ''}\n\n"
+                f"{card.get('snippet') or ''}"
+            ).strip()[:12000]
+
+            job = JobPost(
+                user_id=user_id,
+                post_id=post_id,
+                source="indeed",
+                source_kind="job",
+                source_job_id=job_id,
+                post_url=url[:400],
+                author_handle=_company_handle("", company),
+                author_name=company[:200],
+                content=content,
+                content_hash=fingerprint,
+                posted_at=posted_at,
+                query_text=str(card.get("query") or terms[0])[:200],
+                status="new",
+                relevance=int(verdict["relevance"]),
+                company=company[:200],
+                role=verdict["title"][:200],
+                job_location=verdict["location"][:200],
+                apply_method="link",
+                outreach_method="link",
+                apply_url=url[:500],
+                author_type="company",
+                required_experience_months=int(verdict["required_experience_months"] or 0),
+                reason=str(verdict["reason"])[:200],
+                decision_reason="Indeed job - review the apply method",
+                confidence=0.0,
+            )
+            db.add(job)
+            created.append(job)
+            existing.add(post_id)
+            if fingerprint:
+                existing_hashes.add(fingerprint)
+            stats["relevant"] += 1
+
+            apply_type = str(card.get("apply_type") or "").strip()
+            if apply_type == "direct":
+                job.apply_method = "indeed"
+                job.status = "pending_approval"
+                job.apply_url = ""
+                job.link_checked_at = now
+                job.decision_reason = (
+                    "Indeed direct apply - review and approve to auto-apply"
+                )
+                stats["direct"] += 1
+                _log(job, "Indeed direct apply - moved to Approvals")
+            elif apply_type == "external":
+                job.apply_method = "link"
+                job.status = "new"
+                job.apply_url = url[:500]
+                job.link_checked_at = now
+                job.decision_reason = (
+                    "external apply link - open and apply on the company site"
+                )
+                stats["external"] += 1
+                _log(job, "external apply link - kept in Apply links")
+            elif apply_type == "applied":
+                job.apply_method = "link"
+                job.status = "skipped"
+                job.apply_url = ""
+                job.decision_reason = "already applied on Indeed"
+                stats["already_applied"] += 1
+                _log(job, job.decision_reason)
+            else:
+                job.apply_method = "link"
+                job.status = "new"
+                job.apply_url = url[:500]
+                job.decision_reason = "Indeed job - review the apply method"
+                _log(job, "apply type unknown - kept in Apply links")
+
+        db.commit()
+        stats["posts_new"] = len(created)
+        run.status = "completed"
+        run.stats = stats
+        run.finished_at = _now()
+        db.commit()
+        db.refresh(run)
+        return run
+
+    except Exception as exc:  # noqa: BLE001 - surfaced to the UI
+        db.rollback()
+        logger.exception("Indeed scan failed")
         run.status = "failed"
         run.error = str(exc)
         run.stats = stats
@@ -3042,6 +3270,108 @@ def apply_naukri(db: Session, job: JobPost, answers: dict[str, str] | None = Non
         job.last_error = message[:900]
         job.decision_reason = f"Naukri: {message}"[:500]
         _log(job, f"Naukri apply needs review: {message[:180]}")
+    db.commit()
+    db.refresh(job)
+    return {"ok": False, "code": code, "error": message, "job": job}
+
+
+def apply_indeed(db: Session, job: JobPost, answers: dict[str, str] | None = None) -> dict:
+    """Run the Indeed Quick Apply flow for a reviewed direct-apply job."""
+    if (job.source or "").lower() != "indeed":
+        return {"ok": False, "code": "NOT_INDEED", "error": "not an Indeed job"}
+
+    account = indeed_accounts.active_account(db, job.user_id)
+    if account is None:
+        return {
+            "ok": False,
+            "code": "NO_ACCOUNT",
+            "error": "Connect Indeed in Settings before auto-applying.",
+        }
+
+    url = (job.post_url or job.apply_url or "").strip()
+    if not url:
+        return {"ok": False, "code": "NO_URL", "error": "job has no Indeed URL"}
+
+    endpoint = indeed_accounts.ensure_window(url)
+    args: dict = {"url": url}
+    if answers:
+        args["answers"] = json.dumps(
+            {str(key): str(value) for key, value in answers.items() if str(value).strip()}
+        )
+    result = executor.run_script(
+        "indeed_apply",
+        args,
+        indeed_cookies=indeed_accounts.cookies(account),
+        user_id=job.user_id,
+        timeout=300,
+        browser_cdp_endpoint=endpoint,
+    )
+    data = result.get("data") or {}
+    code = str(data.get("code") or result.get("code") or "ERROR")
+    message = str(data.get("message") or result.get("error") or code)
+
+    returned_cookies = data.get("cookies")
+    if isinstance(returned_cookies, dict) and returned_cookies:
+        account.session_ciphertext = encrypt_credentials(returned_cookies)
+        db.commit()
+
+    if code == "LOGIN_REQUIRED":
+        indeed_accounts.mark_status(db, account, "expired")
+        job.status = "pending_approval"
+        job.last_error = message[:900]
+        job.decision_reason = "Indeed session expired - connect Indeed"
+        _log(job, "Indeed apply blocked: session expired")
+        db.commit()
+        db.refresh(job)
+        return {"ok": False, "code": code, "error": message, "job": job}
+
+    if result.get("success") and (data.get("applied") or code == "ALREADY_APPLIED"):
+        job.status = "sent"
+        job.sent_at = _now()
+        job.apply_method = "indeed"
+        job.apply_url = ""
+        job.last_error = ""
+        job.decision_reason = (
+            "already applied on Indeed" if code == "ALREADY_APPLIED" else "applied on Indeed"
+        )
+        indeed_accounts.mark_status(db, account, "connected")
+        db.add(
+            ActionLog(
+                user_id=job.user_id,
+                job_id=job.id,
+                action="apply",
+                status="sent",
+                target=(job.company or job.author_handle or "")[:300],
+                content="",
+                detail=message[:900],
+            )
+        )
+        _log(job, job.decision_reason)
+        db.commit()
+        db.refresh(job)
+        return {"ok": True, "code": code, "applied": True, "job": job}
+
+    if code == "EXTERNAL":
+        job.status = "new"
+        job.apply_method = "link"
+        job.apply_url = job.post_url
+        job.link_checked_at = _now()
+        job.decision_reason = "external apply link - open and apply on the company site"
+        _log(job, job.decision_reason)
+        db.commit()
+        db.refresh(job)
+        return {"ok": True, "code": "EXTERNAL", "applied": False, "job": job}
+
+    questions = str(data.get("questions") or "").strip()
+    job.status = "pending_approval"
+    if questions:
+        job.last_error = questions[:4000]
+        job.decision_reason = "Indeed asks a question - answer it"
+        _log(job, f"Indeed question: {questions[:300]}")
+    else:
+        job.last_error = message[:900]
+        job.decision_reason = f"Indeed: {message}"[:500]
+        _log(job, f"Indeed apply needs review: {message[:180]}")
     db.commit()
     db.refresh(job)
     return {"ok": False, "code": code, "error": message, "job": job}

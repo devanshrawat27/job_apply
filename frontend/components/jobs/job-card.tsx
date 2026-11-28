@@ -131,7 +131,9 @@ export function JobCard({
   const meta = STATUS[job.status] ?? { label: job.status, variant: 'outline' as const }
   const isLinkedIn = job.source === 'linkedin'
   const isNaukri = job.source === 'naukri'
-  const isCompanyBoard = isLinkedIn || isNaukri
+  const isIndeed = job.source === 'indeed'
+  const isApplySource = isNaukri || isIndeed
+  const isCompanyBoard = isLinkedIn || isNaukri || isIndeed
   const isPost = job.source_kind === 'post'
   const method = METHOD[job.outreach_method] ?? METHOD.dm
   const methodLabel = isLinkedIn
@@ -140,7 +142,9 @@ export function JobCard({
       : 'apply on LinkedIn'
     : isNaukri
       ? 'apply on Naukri'
-      : method.label
+      : isIndeed
+        ? 'apply on Indeed'
+        : method.label
   const MethodIcon = method.icon
   const canAct = !['sent', 'sending'].includes(job.status)
   const needsYou = job.status === 'pending_approval'
@@ -172,12 +176,12 @@ export function JobCard({
     setNaukriAnswer(preferredAnswer(preview, options))
   }
 
-  async function openNaukriPreview() {
-    setBusy('naukri-preview')
+  async function openApplyPreview() {
+    setBusy('apply-preview')
     setError('')
     setNaukriAnswer('')
     try {
-      const preview = await api.naukriPreview(job.id)
+      const preview = isIndeed ? await api.indeedPreview(job.id) : await api.naukriPreview(job.id)
       showPreview(preview)
     } catch (err) {
       setError((err as Error).message)
@@ -187,23 +191,26 @@ export function JobCard({
     }
   }
 
-  async function confirmNaukriApply() {
-    setBusy('naukri-apply')
+  async function confirmApply() {
+    setBusy('apply')
     setError('')
+    const sourceName = isIndeed ? 'Indeed' : 'Naukri'
     try {
       const answers =
         naukriPreview?.question && naukriAnswer
           ? { [naukriPreview.question]: naukriAnswer }
           : undefined
-      const updated = await api.naukriApply(job.id, answers)
+      const updated = isIndeed
+        ? await api.indeedApply(job.id, answers)
+        : await api.naukriApply(job.id, answers)
       await onChange()
       if (updated.status === 'sent') {
         setNaukriPreview(null)
         setNaukriAnswer('')
         toast.success(
           (updated.decision_reason || '').includes('already')
-            ? 'Naukri shows this as already applied'
-            : 'Applied on Naukri',
+            ? `${sourceName} shows this as already applied`
+            : `Applied on ${sourceName}`,
         )
         return
       }
@@ -213,13 +220,13 @@ export function JobCard({
         toast.info('This job applies on the company site - it is now in Apply links')
         return
       }
-      // Naukri asks its questions one at a time; keep the popup open and show
+      // Both sites ask questions one at a time; keep the popup open and show
       // the next one instead of dropping the human back to the card.
       try {
-        const next = await api.naukriPreview(job.id)
+        const next = isIndeed ? await api.indeedPreview(job.id) : await api.naukriPreview(job.id)
         if (next.question) {
           showPreview(next)
-          toast.info('Naukri asks one more question')
+          toast.info(`${sourceName} asks one more question`)
           return
         }
       } catch {
@@ -227,7 +234,7 @@ export function JobCard({
       }
       setNaukriPreview(null)
       setNaukriAnswer('')
-      toast.warning(updated.decision_reason || 'Naukri needs your review')
+      toast.warning(updated.decision_reason || `${sourceName} needs your review`)
     } catch (err) {
       setError((err as Error).message)
       toast.error((err as Error).message)
@@ -236,10 +243,11 @@ export function JobCard({
     }
   }
 
-  async function openNaukriWindow() {
+  async function openApplyWindow() {
     try {
-      await api.naukriWindow(job.post_url || undefined)
-      toast.success('Opening this job in the Naukri window')
+      if (isIndeed) await api.indeedWindow(job.post_url || undefined)
+      else await api.naukriWindow(job.post_url || undefined)
+      toast.success(`Opening this job in the ${isIndeed ? 'Indeed' : 'Naukri'} window`)
     } catch (err) {
       toast.error((err as Error).message)
     }
@@ -327,6 +335,10 @@ export function JobCard({
               ) : isNaukri ? (
                 <span className="rounded bg-orange-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-orange-700 dark:text-orange-400">
                   Naukri
+                </span>
+              ) : isIndeed ? (
+                <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[11px] font-semibold text-blue-700 dark:text-blue-400">
+                  Indeed
                 </span>
               ) : (
                 <span className="text-xs text-muted-foreground">@{job.author_handle}</span>
@@ -527,7 +539,7 @@ export function JobCard({
           </p>
         ) : null}
 
-        {job.last_error && !isNaukri ? (
+        {job.last_error && !isApplySource ? (
           <p className="mt-2 text-[11px] text-destructive">{job.last_error}</p>
         ) : null}
         {error ? <p className="mt-2 text-[11px] text-destructive">{error}</p> : null}
@@ -565,30 +577,32 @@ export function JobCard({
                 </a>
               ) : null}
 
-              {isNaukri && job.status === 'pending_approval' && job.apply_method === 'naukri' ? (
+              {isApplySource &&
+              job.status === 'pending_approval' &&
+              (job.apply_method === 'naukri' || job.apply_method === 'indeed') ? (
                 <Button
                   size="sm"
                   disabled={busy !== null}
-                  onClick={() => void openNaukriPreview()}
+                  onClick={() => void openApplyPreview()}
                 >
-                  {busy === 'naukri-preview' ? (
+                  {busy === 'apply-preview' ? (
                     <Loader2Icon className="animate-spin" />
                   ) : (
                     <ExternalLinkIcon />
                   )}
-                  Auto-apply on Naukri
+                  Auto-apply on {isIndeed ? 'Indeed' : 'Naukri'}
                 </Button>
               ) : null}
 
-              {isNaukri && job.status === 'pending_approval' ? (
+              {isApplySource && job.status === 'pending_approval' ? (
                 <Button
                   variant="outline"
                   size="sm"
                   disabled={busy !== null}
-                  onClick={() => void openNaukriWindow()}
+                  onClick={() => void openApplyWindow()}
                 >
                   <ExternalLinkIcon />
-                  Open Naukri
+                  Open {isIndeed ? 'Indeed' : 'Naukri'}
                 </Button>
               ) : null}
 
@@ -816,7 +830,9 @@ export function JobCard({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold">Naukri application — review before applying</p>
+                <p className="text-sm font-semibold">
+                  {isIndeed ? 'Indeed' : 'Naukri'} application - review before applying
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {naukriPreview.job.title} · {naukriPreview.job.company}
                 </p>
@@ -876,7 +892,9 @@ export function JobCard({
 
             {previewText ? (
               <div className="mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
-                <p className="text-[11px] font-medium">Naukri asks</p>
+                <p className="text-[11px] font-medium">
+                  {isIndeed ? 'Indeed' : 'Naukri'} asks
+                </p>
                 <p className="mt-1 whitespace-pre-wrap text-xs text-muted-foreground">
                   {naukriPreview.question || naukriPreview.questions}
                 </p>
@@ -918,8 +936,9 @@ export function JobCard({
             ) : null}
 
             <p className="mt-3 text-[11px] text-muted-foreground">
-              Naukri uses the profile and resume saved on Naukri. JobPilot does not edit those
-              values; this is what it knows.
+              {isIndeed ? 'Indeed' : 'Naukri'} uses the profile and resume saved on{' '}
+              {isIndeed ? 'Indeed' : 'Naukri'}. JobPilot does not edit those values; this is
+              what it knows.
             </p>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -929,9 +948,9 @@ export function JobCard({
               <Button
                 size="sm"
                 disabled={busy !== null || (Boolean(previewText) && !naukriAnswer.trim())}
-                onClick={() => void confirmNaukriApply()}
+                onClick={() => void confirmApply()}
               >
-                {busy === 'naukri-apply' ? (
+                {busy === 'apply' ? (
                   <Loader2Icon className="animate-spin" />
                 ) : (
                   <ExternalLinkIcon />
